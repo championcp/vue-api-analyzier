@@ -1,0 +1,32 @@
+{
+  "name": "vue-api-analyzer",
+  "version": "2.0.0",
+  "description": "强大的Vue项目API调用关系分析工具，支持移动端和桌面端项目，自动分析路由、组件层级关系、API调用情况，并生成详细的CSV报告。",
+  "main": "enhanced-mobile-route-api-analyzer.js",
+  "bin": {
+    "vue-api-analyzer": "./enhanced-mobile-route-api-analyzer.js"
+  },
+  "scripts": {
+    "start": "node enhanced-mobile-route-api-analyzer.js",
+    "analyze": "node enhanced-mobile-route-api-analyzer.js",
+    "help": "node enhanced-mobile-route-api-analyzer.js --help"
+  },
+  "keywords": [
+    "vue",
+    "api",
+    "analyzer",
+    "route",
+    "mobile",
+    "analysis",
+    "csv",
+    "report"
+  ],
+  "author": "Vue API Analyzer Team",
+  "license": "MIT",
+  "dependencies": {
+    "csv-parser": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  }
+}
