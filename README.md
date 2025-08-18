@@ -1,6 +1,15 @@
 # Vue API 分析器 (Vue API Analyzer)
 
-强大的Vue项目API调用关系分析工具，支持移动端和桌面端项目，自动分析路由、组件层级关系、API调用情况，并生成详细的CSV报告。
+强大的Vue项目API调用关系分析工具，采用双文件架构设计，专门针对PC端和移动端应用提供优化的分析方案。自动分析前端组件/页面与后端API的调用关系，包括前端组件/页面之间的父子关系，并生成详细的CSV报告。
+
+## 🏗️ 项目架构
+
+项目由两个核心分析器组成：
+
+- **universal-vue-api-analyzer.js**：专门用于PC端Vue应用分析
+- **enhanced-mobile-route-api-analyzer.js**：专门用于移动端Vue应用分析
+
+两个分析器都能够深入分析前端组件/页面与后端API的调用关系，构建完整的组件层级结构图。
 
 ## 🚀 功能特性
 
@@ -20,13 +29,47 @@
 
 ## 🛠️ 使用方法
 
-### 命令行语法
+### PC端应用分析
+
+#### 命令行语法
+
+```bash
+node universal-vue-api-analyzer.js [src目录路径] [选项]
+```
+
+#### 基本用法
+
+```bash
+# 分析当前目录的src文件夹（默认）
+node universal-vue-api-analyzer.js
+
+# 分析指定的Vue项目src目录
+node universal-vue-api-analyzer.js /path/to/vue/project/src
+
+# 使用相对路径
+node universal-vue-api-analyzer.js ./my-vue-app/src
+
+# 指定输出文件名
+node universal-vue-api-analyzer.js /path/to/src -o pc-analysis-report.csv
+```
+
+#### 帮助信息
+
+```bash
+node universal-vue-api-analyzer.js --help
+# 或
+node universal-vue-api-analyzer.js -h
+```
+
+### 移动端应用分析
+
+#### 命令行语法
 
 ```bash
 node enhanced-mobile-route-api-analyzer.js [src目录路径] [选项]
 ```
 
-### 基本用法
+#### 基本用法
 
 ```bash
 # 分析当前目录的src文件夹（默认）
@@ -39,7 +82,15 @@ node enhanced-mobile-route-api-analyzer.js /path/to/vue/project/src
 node enhanced-mobile-route-api-analyzer.js ./my-vue-app/src
 
 # 指定输出文件名
-node enhanced-mobile-route-api-analyzer.js /path/to/src -o my-analysis-report.csv
+node enhanced-mobile-route-api-analyzer.js /path/to/src -o mobile-analysis-report.csv
+```
+
+#### 帮助信息
+
+```bash
+node enhanced-mobile-route-api-analyzer.js --help
+# 或
+node enhanced-mobile-route-api-analyzer.js -h
 ```
 
 ### 使用npm脚本
@@ -48,26 +99,21 @@ node enhanced-mobile-route-api-analyzer.js /path/to/src -o my-analysis-report.cs
 # 显示帮助信息
 npm run help
 
-# 开始分析（使用默认参数）
+# 开始移动端分析（使用默认参数）
 npm run analyze
 
 # 或者直接使用start
 npm start /path/to/vue/project/src
 ```
 
-### 帮助信息
-
-```bash
-node enhanced-mobile-route-api-analyzer.js --help
-# 或
-node enhanced-mobile-route-api-analyzer.js -h
-```
-
 ## 📊 输出结果
 
 ### CSV报告文件
 
-分析完成后会生成CSV文件，文件名格式：`{项目名}_enhanced_route_api_analysis.csv`
+分析完成后会生成CSV文件：
+
+- **PC端分析器**：文件名格式为 `{项目名}_universal_api_analysis.csv`
+- **移动端分析器**：文件名格式为 `{项目名}_enhanced_route_api_analysis.csv`
 
 ### CSV文件结构
 
@@ -85,6 +131,26 @@ node enhanced-mobile-route-api-analyzer.js -h
 | 是否有API调用 | 是否包含API调用 | `是`, `否` |
 
 ### 控制台输出示例
+
+#### PC端分析器输出
+
+```
+🔍 开始分析Vue项目: /Users/username/project/src
+📚 预加载URL常量...
+🔗 预加载API文件...
+🗂️  分析组件结构...
+解析组件文件: /Users/username/project/src/views/UserManagement.vue
+  发现API调用: getUserList -> /api/v1/users/list
+  发现子组件: UserForm.vue
+📊 生成CSV报告: src_universal_api_analysis.csv
+
+✅ 分析完成！
+📁 报告文件: /current/path/src_universal_api_analysis.csv
+📈 组件数量: 32
+📈 API记录数: 89
+```
+
+#### 移动端分析器输出
 
 ```
 🔍 开始分析Vue项目: /Users/username/project/src
@@ -114,17 +180,38 @@ node enhanced-mobile-route-api-analyzer.js -h
 
 ## 🔧 工作原理
 
-### 1. 路由表构建
+### PC端分析器 (universal-vue-api-analyzer.js)
+
+#### 1. 组件文件扫描
+- 递归扫描`src/`目录下的所有Vue组件文件
+- 解析组件的导入语句和模板结构
+- 识别组件之间的父子关系和层级结构
+
+#### 2. API调用分析
+- 解析Vue组件文件中的API导入语句
+- 匹配API函数与预加载的API定义
+- 生成完整的组件-API调用关系报告
+
+### 移动端分析器 (enhanced-mobile-route-api-analyzer.js)
+
+#### 1. 路由表构建
 - 自动扫描Vue Router配置文件（`router/routes.js`, `router/index.js`等）
 - 解析嵌套路由结构，建立完整的路由映射表
 - 识别路由的父子关系和层级结构
 
-### 2. API文件预加载
+#### 2. 路由组件分析
+- 基于路由配置分析对应的页面组件
+- 解析路由级别的API调用关系
+- 构建路由-组件-API的完整映射
+
+### 共同工作机制
+
+#### 1. API文件预加载
 - 扫描`src/api/`目录下的所有API文件
 - 解析API函数定义和URL配置
 - 缓存API函数与URL的映射关系
 
-### 3. URL常量解析
+#### 2. URL常量解析
 支持以下位置的URL常量文件：
 - `src/api/baseUrl.js`
 - `src/utils/baseUrl.js` 
@@ -144,11 +231,6 @@ export const SERVICE_URL = () => {
   return process.env.NODE_ENV === 'production' ? '/api/v3' : '/api/dev'
 }
 ```
-
-### 4. 组件API分析
-- 解析Vue组件文件中的API导入语句
-- 匹配API函数与预加载的API定义
-- 生成完整的路由-API调用关系报告
 
 ## 📁 支持的项目结构
 
@@ -225,6 +307,9 @@ vue-project/
 ## 🔄 更新日志
 
 ### v2.0.0 (当前版本)
+- ✨ 引入双文件架构设计
+- ✨ 新增PC端专用分析器 (universal-vue-api-analyzer.js)
+- ✨ 增强移动端分析器 (enhanced-mobile-route-api-analyzer.js)
 - ✨ 新增命令行参数支持
 - ✨ 新增输出文件路径自定义选项
 - ✨ 改进的用户界面和进度提示
