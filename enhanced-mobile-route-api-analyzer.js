@@ -1018,8 +1018,22 @@ class EnhancedMobileRouteApiAnalyzer {
         resolvedPath = this.normalizePath(`/views/${importPath}`);
       }
       
-      // 确保路径以.vue结尾
-      if (!resolvedPath.endsWith('.vue')) {
+      // 智能处理目录导入和文件扩展名 - 保持向后兼容
+      if (!path.extname(resolvedPath)) {
+        // 没有扩展名的情况，需要智能判断是文件还是目录
+        // 首先尝试直接添加.vue扩展名（保持向后兼容）
+        const directVuePath = resolvedPath + '.vue';
+        const directFullPath = srcRootPath + directVuePath;
+        const directLocalPath = directFullPath.replace(/\//g, path.sep);
+        
+        if (fs.existsSync(directLocalPath)) {
+          // 如果直接添加.vue的文件存在，使用该路径
+          resolvedPath = directVuePath;
+        } else {
+          // 如果不存在，再尝试目录导入模式
+          resolvedPath = path.posix.join(resolvedPath, 'index.vue');
+        }
+      } else if (!resolvedPath.endsWith('.vue')) {
         resolvedPath += '.vue';
       }
       
