@@ -1018,8 +1018,11 @@ class EnhancedMobileRouteApiAnalyzer {
         resolvedPath = this.normalizePath(`/views/${importPath}`);
       }
       
-      // 确保路径以.vue结尾
-      if (!resolvedPath.endsWith('.vue')) {
+      // 处理目录导入和文件扩展名
+      if (!path.extname(resolvedPath)) {
+        // 目录导入，默认寻找目录下的index.vue
+        resolvedPath = path.posix.join(resolvedPath, 'index.vue');
+      } else if (!resolvedPath.endsWith('.vue')) {
         resolvedPath += '.vue';
       }
       
