@@ -371,6 +371,8 @@ class EnhancedMobileRouteApiAnalyzer {
     if (importMatch) {
       let importPath = importMatch[1];
       
+      console.log(`    解析_import路径: ${importPath} 来自: ${componentString}`);
+      
       // 处理模板字符串中的变量（如 ${global.STYLE}），简单替换为空
       importPath = importPath.replace(/\$\{[^}]+\}/g, '');
       
@@ -383,6 +385,8 @@ class EnhancedMobileRouteApiAnalyzer {
         importPath = '/views' + (importPath.startsWith('/') ? '' : '/') + importPath;
       }
       
+      console.log(`    转换后路径: ${importPath}`);
+      
       // 确保以.vue结尾，但首先检查是否存在index.vue目录结构
       if (!importPath.endsWith('.vue')) {
         // 检查是否存在对应的index.vue文件
@@ -390,12 +394,18 @@ class EnhancedMobileRouteApiAnalyzer {
         const indexPath = srcRootPath + importPath + '/index.vue';
         const localIndexPath = indexPath.replace(/\//g, path.sep);
         
+        console.log(`    检查index.vue文件: ${localIndexPath}`);
+        
         if (fs.existsSync(localIndexPath)) {
           importPath += '/index.vue';
+          console.log(`    使用index.vue: ${importPath}`);
         } else {
           importPath += '.vue';
+          console.log(`    使用直接.vue: ${importPath}`);
         }
       }
+      
+      console.log(`    最终组件路径: ${importPath}`);
       return importPath;
     }
     
@@ -1108,7 +1118,12 @@ class EnhancedMobileRouteApiAnalyzer {
     console.log('开始构建最终结果...');
     
     for (const [routeName, routeInfo] of this.routeMap.entries()) {
-      if (!routeInfo.componentPath) continue;
+      if (!routeInfo.componentPath) {
+        console.log(`跳过无组件路径的路由: ${routeName}`);
+        continue;
+      }
+      
+      console.log(`处理路由: ${routeName} -> ${routeInfo.componentPath}`);
       
       // 获取API调用信息（包括子组件）
       const apiInfo = this.parseVueComponentForApi(routeInfo.componentPath);
@@ -1130,9 +1145,58 @@ class EnhancedMobileRouteApiAnalyzer {
         });
       }
       
-      if (apiInfo.hasApiCalls && apiInfo.apiImports.length > 0) {
-        // 为每个API创建一条记录
-        apiInfo.apiImports.forEach(api => {
+      // 分离主组件API调用和子组件API调用
+      const mainComponentApis = apiInfo.apiImports.filter(api => !api.isFromChild);
+      const childComponentApis = apiInfo.apiImports.filter(api => api.isFromChild);
+      
+      console.log(`  路由${routeName}: 主组件API=${mainComponentApis.length}, 子组件API=${childComponentApis.length}`);
+      
+      // 为主组件的直接API调用创建记录
+      if (mainComponentApis.length > 0) {
+        console.log(`  为路由${routeName}创建${mainComponentApis.length}个主组件API记录`);
+        mainComponentApis.forEach(api => {
+          this.results.push({
+            routeName: routeName,
+            routePath: routeInfo.path,
+            parentRoute: parentRouteName,
+            routeLevel: routeInfo.level,
+            componentPath: routeInfo.componentPath,
+            apiFunction: api.functionName,
+            url: api.url || '',
+            description: api.description || '',
+            sourceFile: routeInfo.source,
+            hasApiCalls: '是',
+            childComponents: childComponents.map(c => c.relativePath || c.name).join(', '),
+            childPaths: childComponents.map(c => c.path).join(', '),
+            isFromChild: false,
+            childSourcePath: ''
+          });
+        });
+      } else {
+        console.log(`  为路由${routeName}创建1个基础记录（无直接API调用）`);
+        // 主组件没有直接API调用，创建一条基础记录
+        this.results.push({
+          routeName: routeName,
+          routePath: routeInfo.path,
+          parentRoute: parentRouteName,
+          routeLevel: routeInfo.level,
+          componentPath: routeInfo.componentPath,
+          apiFunction: '',
+          url: '',
+          description: '',
+          sourceFile: routeInfo.source,
+          hasApiCalls: childComponentApis.length > 0 ? '否（仅子组件有）' : '否',
+          childComponents: childComponents.map(c => c.relativePath || c.name).join(', '),
+          childPaths: childComponents.map(c => c.path).join(', '),
+          isFromChild: false,
+          childSourcePath: ''
+        });
+      }
+      
+      // 为子组件的API调用创建记录
+      if (childComponentApis.length > 0) {
+        console.log(`  为路由${routeName}创建${childComponentApis.length}个子组件API记录`);
+        childComponentApis.forEach(api => {
           this.results.push({
             routeName: routeName,
             routePath: routeInfo.path,
@@ -1149,24 +1213,6 @@ class EnhancedMobileRouteApiAnalyzer {
             isFromChild: api.isFromChild || false,
             childSourcePath: api.childSourcePath || ''
           });
-        });
-      } else {
-        // 没有API调用的路由创建一条记录
-        this.results.push({
-          routeName: routeName,
-          routePath: routeInfo.path,
-          parentRoute: parentRouteName,
-          routeLevel: routeInfo.level,
-          componentPath: routeInfo.componentPath,
-          apiFunction: '',
-          url: '',
-          description: '',
-          sourceFile: routeInfo.source,
-          hasApiCalls: '否',
-          childComponents: '',
-          childPaths: '',
-          isFromChild: false,
-          childSourcePath: ''
         });
       }
     }
@@ -1198,8 +1244,8 @@ class EnhancedMobileRouteApiAnalyzer {
       outputPath = `./${projectName}_enhanced_route_api_analysis.csv`;
     }
     
-    // 更新CSV格式以适应每个API一行的格式 - 更新表头说明
-    const csvHeader = '路由名称,组件类型,父组件,导入的API函数,URL,说明,来自子组件,组件路径,导入的组件,是否有API调用\n';
+    // 新的CSV格式：6列 - 组件名称、组件类型、父组件、导入的API函数、URL、说明
+    const csvHeader = '组件名称,组件类型,父组件,导入的API函数,URL,说明\n';
     
     const csvRows = this.results.map(row => {
       let processedUrl = row.url || '';
@@ -1240,19 +1286,49 @@ class EnhancedMobileRouteApiAnalyzer {
       // 处理剩余的拼接符号和空格
       processedUrl = processedUrl.replace(/\s*\+\s*/g, '').replace(/\s+/g, ' ').trim();
       
-      // 映射字段到CSV格式
-      const componentType = `${row.routeLevel}级路由`;
+      // 确定组件名称：对于路由显示完整path，对于vue组件显示完整相对路径
+      let componentName;
+      if (row.routeName && row.routePath) {
+        // 路由组件：显示完整的路由路径
+        componentName = row.routePath;
+      } else {
+        // Vue组件：显示完整的相对路径
+        componentName = this.getRelativeComponentPath(row.componentPath);
+      }
       
-      // 处理来自子组件的标识 - 使用完整相对路径
-      const fromChildComponent = row.isFromChild ? 
-        (row.childSourcePath ? this.getRelativeComponentPath(row.childSourcePath) : '子组件') : '';
-      const childSourcePathFormatted = row.isFromChild ? (row.childSourcePath || '') : '';
+      // 确定组件类型
+      let componentType;
+      if (row.isFromChild && row.childSourcePath) {
+        // 来自子组件的API调用
+        componentType = 'Vue组件';
+        // 对于子组件，组件名称使用子组件的完整相对路径
+        componentName = this.getRelativeComponentPath(row.childSourcePath);
+      } else if (row.routeName) {
+        // 路由组件
+        componentType = '路由组件';
+      } else {
+        // 普通Vue组件
+        componentType = 'Vue组件';
+      }
       
-      // 获取主组件的完整相对路径
-      const mainComponentRelativePath = this.getRelativeComponentPath(row.componentPath);
+      // 确定父组件
+      let parentComponent = '';
+      if (row.isFromChild) {
+        // 如果是子组件的API调用，父组件是主路由组件
+        parentComponent = row.routePath || this.getRelativeComponentPath(row.componentPath);
+      } else if (row.parentRoute && componentType === 'Vue组件') {
+        // 只有Vue组件才设置父路由，路由组件不应该有父组件
+        const parentRouteInfo = this.routeMap.get(row.parentRoute);
+        if (parentRouteInfo) {
+          parentComponent = parentRouteInfo.path;
+        } else {
+          parentComponent = row.parentRoute;
+        }
+      }
+      // 如果是路由组件，父组件应该始终为空（除非是子组件的API调用）
       
-      // 使用完整相对路径作为文件路径标识，父组件使用完整路径
-      return `"${row.routeName}","${componentType}","${row.parentRoute || ''}","${row.apiFunction || ''}","${processedUrl}","${row.description || ''}","${fromChildComponent}","${mainComponentRelativePath}","${row.childComponents || ''}","${row.hasApiCalls}"`;
+      // 新的6列CSV格式：组件名称,组件类型,父组件,导入的API函数,URL,说明
+      return `"${componentName}","${componentType}","${parentComponent}","${row.apiFunction || ''}","${processedUrl}","${row.description || ''}"`;
     });
     
     const fullContent = csvHeader + csvRows.join('\n');
