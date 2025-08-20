@@ -1198,8 +1198,8 @@ class EnhancedMobileRouteApiAnalyzer {
       outputPath = `./${projectName}_enhanced_route_api_analysis.csv`;
     }
     
-    // 更新CSV格式以适应每个API一行的格式 - 更新表头说明
-    const csvHeader = '路由名称,组件类型,父组件,导入的API函数,URL,说明,来自子组件,组件路径,导入的组件,是否有API调用\n';
+    // 新的CSV格式：6列 - 组件名称、组件类型、父组件、导入的API函数、URL、说明
+    const csvHeader = '组件名称,组件类型,父组件,导入的API函数,URL,说明\n';
     
     const csvRows = this.results.map(row => {
       let processedUrl = row.url || '';
@@ -1240,19 +1240,48 @@ class EnhancedMobileRouteApiAnalyzer {
       // 处理剩余的拼接符号和空格
       processedUrl = processedUrl.replace(/\s*\+\s*/g, '').replace(/\s+/g, ' ').trim();
       
-      // 映射字段到CSV格式
-      const componentType = `${row.routeLevel}级路由`;
+      // 确定组件名称：对于路由显示完整path，对于vue组件显示完整相对路径
+      let componentName;
+      if (row.routeName && row.routePath) {
+        // 路由组件：显示完整的路由路径
+        componentName = row.routePath;
+      } else {
+        // Vue组件：显示完整的相对路径
+        componentName = this.getRelativeComponentPath(row.componentPath);
+      }
       
-      // 处理来自子组件的标识 - 使用完整相对路径
-      const fromChildComponent = row.isFromChild ? 
-        (row.childSourcePath ? this.getRelativeComponentPath(row.childSourcePath) : '子组件') : '';
-      const childSourcePathFormatted = row.isFromChild ? (row.childSourcePath || '') : '';
+      // 确定组件类型
+      let componentType;
+      if (row.isFromChild && row.childSourcePath) {
+        // 来自子组件的API调用
+        componentType = 'Vue组件';
+        // 对于子组件，组件名称使用子组件的完整相对路径
+        componentName = this.getRelativeComponentPath(row.childSourcePath);
+      } else if (row.routeName) {
+        // 路由组件
+        componentType = '路由组件';
+      } else {
+        // 普通Vue组件
+        componentType = 'Vue组件';
+      }
       
-      // 获取主组件的完整相对路径
-      const mainComponentRelativePath = this.getRelativeComponentPath(row.componentPath);
+      // 确定父组件
+      let parentComponent = '';
+      if (row.isFromChild) {
+        // 如果是子组件的API调用，父组件是主路由组件
+        parentComponent = row.routePath || this.getRelativeComponentPath(row.componentPath);
+      } else if (row.parentRoute) {
+        // 如果有父路由，查找父路由的路径
+        const parentRouteInfo = this.routeMap.get(row.parentRoute);
+        if (parentRouteInfo) {
+          parentComponent = parentRouteInfo.path;
+        } else {
+          parentComponent = row.parentRoute;
+        }
+      }
       
-      // 使用完整相对路径作为文件路径标识，父组件使用完整路径
-      return `"${row.routeName}","${componentType}","${row.parentRoute || ''}","${row.apiFunction || ''}","${processedUrl}","${row.description || ''}","${fromChildComponent}","${mainComponentRelativePath}","${row.childComponents || ''}","${row.hasApiCalls}"`;
+      // 新的6列CSV格式：组件名称,组件类型,父组件,导入的API函数,URL,说明
+      return `"${componentName}","${componentType}","${parentComponent}","${row.apiFunction || ''}","${processedUrl}","${row.description || ''}"`;
     });
     
     const fullContent = csvHeader + csvRows.join('\n');
