@@ -43,3 +43,7 @@ logs/
 # 构建输出
 dist/
 build/*.csv
+
+# CSV 输出文件
+*.csv
+!example_output.csv
