@@ -887,12 +887,17 @@ class EnhancedMobileRouteApiAnalyzer {
       console.log(`在 ${apiDirPath} 中找到 ${apiFiles.length} 个JS文件`);
       
       apiFiles.forEach(file => {
-        // 只处理明确是API文件的文件
-        if (file.includes('/api/') || file.endsWith('/api.js') || file.match(/\/api\.js$/)) {
+        // 只处理明确是API文件的文件 - 使用跨平台兼容的路径匹配
+        const normalizedFile = this.normalizePath(file);
+        if (normalizedFile.includes('/api/') || normalizedFile.endsWith('/api.js') || normalizedFile.includes('\\api\\') || normalizedFile.endsWith('\\api.js')) {
           console.log(`解析API文件: ${file}`);
           const apis = this.parseApiFile(file);
           
-          const relativePath = file.replace(srcRootPath + '/', '');
+          // 使用跨平台兼容的相对路径计算
+          const normalizedSrcRoot = this.normalizePath(srcRootPath);
+          const normalizedFile = this.normalizePath(file);
+          // 使用path.relative进行跨平台相对路径计算，然后规范化
+          const relativePath = this.normalizePath(path.relative(normalizedSrcRoot, normalizedFile));
           
           Object.keys(apis).forEach(funcName => {
             const cacheKey = `${funcName}@${relativePath}`;
@@ -979,7 +984,8 @@ class EnhancedMobileRouteApiAnalyzer {
             // 需要基于当前组件路径解析
             const currentDir = path.dirname(componentPath);
             const resolvedPath = path.resolve(srcRootPath + currentDir, importPath);
-            const relativePath = resolvedPath.replace(srcRootPath + '/', '');
+            // 使用path.relative进行跨平台相对路径计算
+            const relativePath = this.normalizePath(path.relative(srcRootPath, resolvedPath));
             possiblePaths.push(this.normalizePath(relativePath + '.js'));
             possiblePaths.push(this.normalizePath(relativePath + '/index.js'));
             // 如果路径已经包含 index，也尝试不带 index 的版本
