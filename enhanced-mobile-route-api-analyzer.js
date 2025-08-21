@@ -1,9 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 class EnhancedMobileRouteApiAnalyzer {
   constructor(srcPath) {
     this.srcPath = srcPath;
+    this.platform = os.platform(); // 平台检测
     this.apiCache = new Map();
     this.urlConstantsCache = new Map();
     this.routeMap = new Map(); // 完整路由表：name -> route info
@@ -12,16 +14,26 @@ class EnhancedMobileRouteApiAnalyzer {
     this.results = [];
     this.processedRoutes = 0;
     this.totalRoutes = 0;
+    
+    // 添加平台调试信息
+    console.log(`平台检测: ${this.platform}`);
+    console.log(`路径分隔符: ${path.sep}`);
   }
 
-  // 跨平台路径规范化
+  // 跨平台路径规范化 - 统一转换为正斜杠
   normalizePath(inputPath) {
-    let normalized = inputPath.replace(/\\/g, '/');
-    normalized = normalized.replace(/\/+/g, '/');
-    if (/^[A-Za-z]:/.test(inputPath)) {
-      return normalized;
-    }
-    return normalized;
+    // 统一将所有反斜杠转换为正斜杠（Windows也支持正斜杠）
+    return inputPath.replace(/\\/g, '/');
+  }
+
+  // 路径验证和调试辅助方法
+  validateAndLogPath(originalPath, resolvedPath, description = '') {
+    const exists = fs.existsSync(resolvedPath);
+    console.log(`[${description}] 原始路径: ${originalPath}`);
+    console.log(`[${description}] 解析路径: ${resolvedPath}`);
+    console.log(`[${description}] 文件存在: ${exists ? '是' : '否'}`);
+    console.log(`[${description}] 平台: ${this.platform}`);
+    return exists;
   }
 
   // 将组件路径转换为相对于命令行参数根路径的相对路径
@@ -34,7 +46,7 @@ class EnhancedMobileRouteApiAnalyzer {
       const cmdArgPath = this.normalizePath(path.resolve(this.srcPath));
       
       // 获取组件的完整路径
-      const fullComponentPath = srcRootPath + componentPath;
+      const fullComponentPath = path.join(srcRootPath, componentPath);
       
       // 计算相对于命令行参数路径的相对路径
       const relativePath = path.relative(cmdArgPath, fullComponentPath);
@@ -59,11 +71,14 @@ class EnhancedMobileRouteApiAnalyzer {
     
     for (let i = pathParts.length; i > 0; i--) {
       const testPath = pathParts.slice(0, i).join('/');
-      const potentialSrcPath = testPath + '/src';
+      const potentialSrcPath = path.join(testPath, 'src');
       
-      const localPath = potentialSrcPath.replace(/\//g, path.sep);
-      if (fs.existsSync(localPath)) {
-        return potentialSrcPath;
+      // 使用path.resolve确保绝对路径
+      const resolvedPath = path.resolve(potentialSrcPath);
+      const exists = this.validateAndLogPath(potentialSrcPath, resolvedPath, `查找src目录-尝试${i}`);
+      if (exists) {
+        console.log(`找到src目录: ${resolvedPath}`);
+        return this.normalizePath(potentialSrcPath);
       }
     }
     
@@ -75,18 +90,23 @@ class EnhancedMobileRouteApiAnalyzer {
     let srcRootPath = this.findSrcRootPath();
     
     const baseUrlFiles = [
-      srcRootPath + '/api/baseUrl.js',
-      srcRootPath + '/api/qz-baseUrl.js',
-      srcRootPath + '/utils/baseUrl.js',
-      srcRootPath + '/config/baseUrl.js',
-      srcRootPath + '/constants/baseUrl.js',
-      srcRootPath + '/common/baseUrl.js'
+      path.join(srcRootPath, 'api/baseUrl.js'),
+      path.join(srcRootPath, 'api/qz-baseUrl.js'),
+      path.join(srcRootPath, 'utils/baseUrl.js'),
+      path.join(srcRootPath, 'config/baseUrl.js'),
+      path.join(srcRootPath, 'constants/baseUrl.js'),
+      path.join(srcRootPath, 'common/baseUrl.js')
     ];
     
     for (const file of baseUrlFiles) {
-      const localPath = file.replace(/\//g, path.sep);
-      if (fs.existsSync(localPath)) {
-        this.parseBaseUrlFile(localPath);
+      // 使用path.resolve确保绝对路径
+      const resolvedPath = path.resolve(this.normalizePath(file));
+      console.log(`检查baseUrl文件: ${resolvedPath}`);
+      if (fs.existsSync(resolvedPath)) {
+        console.log(`正在解析baseUrl文件: ${resolvedPath}`);
+        this.parseBaseUrlFile(resolvedPath);
+      } else {
+        console.log(`跳过不存在的baseUrl文件: ${resolvedPath}`);
       }
     }
   }
@@ -197,16 +217,20 @@ class EnhancedMobileRouteApiAnalyzer {
   // 扫描目录获取所有文件
   scanDirectory(dir, extensions = []) {
     const files = [];
-    const localDir = dir.replace(/\//g, path.sep);
+    // 使用path.resolve确保绝对路径，并处理平台特定路径
+    const resolvedDir = path.resolve(this.normalizePath(dir));
     
-    if (!fs.existsSync(localDir)) {
+    console.log(`扫描目录: ${resolvedDir}`);
+    
+    if (!fs.existsSync(resolvedDir)) {
+      console.log(`目录不存在: ${resolvedDir}`);
       return files;
     }
     
-    const items = fs.readdirSync(localDir, { withFileTypes: true });
+    const items = fs.readdirSync(resolvedDir, { withFileTypes: true });
     
     for (const item of items) {
-      const fullPath = path.join(localDir, item.name);
+      const fullPath = path.join(resolvedDir, item.name);
       const normalizedPath = this.normalizePath(fullPath);
       
       if (item.isDirectory() && !item.name.startsWith('.')) {
@@ -227,18 +251,21 @@ class EnhancedMobileRouteApiAnalyzer {
     
     // 按照依赖关系解析：index.js -> routes.js -> qz-routes.js
     const routerFiles = [
-      srcRootPath + '/router/qz-routes.js',  // 最底层
-      srcRootPath + '/router/routes.js',     // 中间层
-      srcRootPath + '/router/index.js'       // 顶层
+      path.join(srcRootPath, 'router/qz-routes.js'),  // 最底层
+      path.join(srcRootPath, 'router/routes.js'),     // 中间层
+      path.join(srcRootPath, 'router/index.js')       // 顶层
     ];
     
     console.log('开始构建完整路由表...');
     
     routerFiles.forEach(file => {
-      const localPath = file.replace(/\//g, path.sep);
-      if (fs.existsSync(localPath)) {
+      const resolvedPath = path.resolve(this.normalizePath(file));
+      const exists = this.validateAndLogPath(file, resolvedPath, '路由文件检查');
+      if (exists) {
         console.log(`解析路由文件: ${file}`);
         this.parseRouteFileEnhanced(file);
+      } else {
+        console.log(`路由文件不存在: ${resolvedPath}`);
       }
     });
     
@@ -248,8 +275,9 @@ class EnhancedMobileRouteApiAnalyzer {
   // 增强的路由文件解析
   parseRouteFileEnhanced(filePath) {
     try {
-      const localPath = filePath.replace(/\//g, path.sep);
-      const content = fs.readFileSync(localPath, 'utf8');
+      const resolvedPath = path.resolve(this.normalizePath(filePath));
+      console.log(`解析路由文件: ${resolvedPath}`);
+      const content = fs.readFileSync(resolvedPath, 'utf8');
       
       // 解析所有路由对象
       this.extractAllRoutes(content, filePath);
@@ -391,12 +419,12 @@ class EnhancedMobileRouteApiAnalyzer {
       if (!importPath.endsWith('.vue')) {
         // 检查是否存在对应的index.vue文件
         const srcRootPath = this.findSrcRootPath();
-        const indexPath = srcRootPath + importPath + '/index.vue';
-        const localIndexPath = indexPath.replace(/\//g, path.sep);
+        const indexPath = path.join(srcRootPath, importPath, 'index.vue');
+        const resolvedIndexPath = path.resolve(this.normalizePath(indexPath));
         
-        console.log(`    检查index.vue文件: ${localIndexPath}`);
+        console.log(`    检查index.vue文件: ${resolvedIndexPath}`);
         
-        if (fs.existsSync(localIndexPath)) {
+        if (fs.existsSync(resolvedIndexPath)) {
           importPath += '/index.vue';
           console.log(`    使用index.vue: ${importPath}`);
         } else {
@@ -496,14 +524,15 @@ class EnhancedMobileRouteApiAnalyzer {
     
     try {
       let srcRootPath = this.findSrcRootPath();
-      let fullPath = srcRootPath + componentPath;
+      let fullPath = path.join(srcRootPath, componentPath);
       
-      const localPath = fullPath.replace(/\//g, path.sep);
-      if (!fs.existsSync(localPath)) {
+      const resolvedPath = path.resolve(this.normalizePath(fullPath));
+      
+      if (!fs.existsSync(resolvedPath)) {
         return childRoutes;
       }
       
-      const content = fs.readFileSync(localPath, 'utf8');
+      const content = fs.readFileSync(resolvedPath, 'utf8');
       
       // 匹配 this.$router.push() 调用
       const routerPushRegex = /this\.\$router\.push\s*\(\s*['"`]([^'"`]+)['"`]\s*\)|this\.\$router\.push\s*\(\s*\{\s*name:\s*['"`]([^'"`]+)['"`]/g;
@@ -602,8 +631,9 @@ class EnhancedMobileRouteApiAnalyzer {
   // 解析API文件
   parseApiFile(filePath) {
     try {
-      const localPath = filePath.replace(/\//g, path.sep);
-      const content = fs.readFileSync(localPath, 'utf8');
+      const resolvedPath = path.resolve(this.normalizePath(filePath));
+      console.log(`解析API文件: ${resolvedPath}`);
+      const content = fs.readFileSync(resolvedPath, 'utf8');
       const apis = {};
       
       // 提取常量定义
@@ -828,15 +858,15 @@ class EnhancedMobileRouteApiAnalyzer {
     
     // 扫描多个可能的API目录
     const apiDirectories = [
-      srcRootPath + '/api',
-      srcRootPath + '/views/modules'  // 添加modules目录扫描
+      path.join(srcRootPath, 'api'),
+      path.join(srcRootPath, 'views/modules')  // 添加modules目录扫描
     ];
     
     console.log('开始预加载API文件...');
     
     apiDirectories.forEach(apiDirPath => {
-      const localApiDir = apiDirPath.replace(/\//g, path.sep);
-      if (!fs.existsSync(localApiDir)) {
+      const resolvedApiDir = path.resolve(this.normalizePath(apiDirPath));
+      if (!fs.existsSync(resolvedApiDir)) {
         console.log(`跳过不存在的目录: ${apiDirPath}`);
         return;
       }
@@ -847,12 +877,17 @@ class EnhancedMobileRouteApiAnalyzer {
       console.log(`在 ${apiDirPath} 中找到 ${apiFiles.length} 个JS文件`);
       
       apiFiles.forEach(file => {
-        // 只处理明确是API文件的文件
-        if (file.includes('/api/') || file.endsWith('/api.js') || file.match(/\/api\.js$/)) {
+        // 只处理明确是API文件的文件 - 使用跨平台兼容的路径匹配
+        const normalizedFile = this.normalizePath(file);
+        if (normalizedFile.includes('/api/') || normalizedFile.endsWith('/api.js') || normalizedFile.includes('\\api\\') || normalizedFile.endsWith('\\api.js')) {
           console.log(`解析API文件: ${file}`);
           const apis = this.parseApiFile(file);
           
-          const relativePath = file.replace(srcRootPath + '/', '');
+          // 使用跨平台兼容的相对路径计算
+          const normalizedSrcRoot = this.normalizePath(srcRootPath);
+          const normalizedFile = this.normalizePath(file);
+          // 使用path.relative进行跨平台相对路径计算，然后规范化
+          const relativePath = this.normalizePath(path.relative(normalizedSrcRoot, normalizedFile));
           
           Object.keys(apis).forEach(funcName => {
             const cacheKey = `${funcName}@${relativePath}`;
@@ -882,15 +917,15 @@ class EnhancedMobileRouteApiAnalyzer {
       visitedComponents.add(normalizedPath);
       
       let srcRootPath = this.findSrcRootPath();
-      let fullPath = srcRootPath + componentPath;
+      let fullPath = path.join(srcRootPath, componentPath);
       
-      const localPath = fullPath.replace(/\//g, path.sep);
+      const resolvedPath = path.resolve(this.normalizePath(fullPath));
       
-      if (!fs.existsSync(localPath)) {
+      if (!fs.existsSync(resolvedPath)) {
         return { apiImports: [], hasApiCalls: false, childComponents: [] };
       }
       
-      const content = fs.readFileSync(localPath, 'utf8');
+      const content = fs.readFileSync(resolvedPath, 'utf8');
       
       const result = {
         apiImports: [],
@@ -939,7 +974,8 @@ class EnhancedMobileRouteApiAnalyzer {
             // 需要基于当前组件路径解析
             const currentDir = path.dirname(componentPath);
             const resolvedPath = path.resolve(srcRootPath + currentDir, importPath);
-            const relativePath = resolvedPath.replace(srcRootPath + '/', '');
+            // 使用path.relative进行跨平台相对路径计算
+            const relativePath = this.normalizePath(path.relative(srcRootPath, resolvedPath));
             possiblePaths.push(this.normalizePath(relativePath + '.js'));
             possiblePaths.push(this.normalizePath(relativePath + '/index.js'));
             // 如果路径已经包含 index，也尝试不带 index 的版本
@@ -1053,13 +1089,13 @@ class EnhancedMobileRouteApiAnalyzer {
       
       // 智能处理目录导入和文件扩展名 - 保持向后兼容
       if (!path.extname(resolvedPath)) {
-        // 没有扩展名的情况，需要智能判断是文件还是目录
+        // 如果没有扩展名的情况，需要智能判断是文件还是目录
         // 首先尝试直接添加.vue扩展名（保持向后兼容）
         const directVuePath = resolvedPath + '.vue';
-        const directFullPath = srcRootPath + directVuePath;
-        const directLocalPath = directFullPath.replace(/\//g, path.sep);
+        const directFullPath = path.join(srcRootPath, directVuePath);
+        const directResolvedPath = path.resolve(this.normalizePath(directFullPath));
         
-        if (fs.existsSync(directLocalPath)) {
+        if (fs.existsSync(directResolvedPath)) {
           // 如果直接添加.vue的文件存在，使用该路径
           resolvedPath = directVuePath;
         } else {
@@ -1071,10 +1107,10 @@ class EnhancedMobileRouteApiAnalyzer {
       }
       
       // 检查文件是否存在
-      const fullPath = srcRootPath + resolvedPath;
-      const localPath = fullPath.replace(/\//g, path.sep);
+      const fullPath = path.join(srcRootPath, resolvedPath);
+      const finalResolvedPath = path.resolve(this.normalizePath(fullPath));
       
-      if (fs.existsSync(localPath)) {
+      if (fs.existsSync(finalResolvedPath)) {
         childComponents.push(resolvedPath);
         console.log(`  找到子组件: ${componentName} -> ${resolvedPath}`);
       } else {
@@ -1093,10 +1129,10 @@ class EnhancedMobileRouteApiAnalyzer {
         // 尝试备选路径
         let found = false;
         for (const altPath of alternativePaths) {
-          const altFullPath = srcRootPath + altPath;
-          const altLocalPath = altFullPath.replace(/\//g, path.sep);
+          const altFullPath = path.join(srcRootPath, altPath);
+          const altResolvedPath = path.resolve(this.normalizePath(altFullPath));
           
-          if (fs.existsSync(altLocalPath)) {
+          if (fs.existsSync(altResolvedPath)) {
             childComponents.push(altPath);
             console.log(`  找到子组件(备选路径): ${componentName} -> ${altPath}`);
             found = true;
@@ -1264,11 +1300,11 @@ class EnhancedMobileRouteApiAnalyzer {
           for (const [cacheKey, apiInfo] of this.apiCache.entries()) {
             if (apiInfo.filePath) {
               let srcRootPath = this.findSrcRootPath();
-              const apiFilePath = srcRootPath + '/' + apiInfo.filePath;
-              const localApiFilePath = apiFilePath.replace(/\//g, path.sep);
+              const apiFilePath = path.join(srcRootPath, apiInfo.filePath);
+              const resolvedApiFilePath = path.resolve(this.normalizePath(apiFilePath));
               
               try {
-                const apiContent = fs.readFileSync(localApiFilePath, 'utf8');
+                const apiContent = fs.readFileSync(resolvedApiFilePath, 'utf8');
                 const constRegex = new RegExp(`(?:const|let|var)\\s+${constantName}\\s*=\\s*['"\`]([^'"\`]+)['"\`]`);
                 const constMatch = apiContent.match(constRegex);
                 if (constMatch) {
