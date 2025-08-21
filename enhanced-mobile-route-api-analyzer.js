@@ -20,20 +20,10 @@ class EnhancedMobileRouteApiAnalyzer {
     console.log(`路径分隔符: ${path.sep}`);
   }
 
-  // 跨平台路径规范化
+  // 跨平台路径规范化 - 统一转换为正斜杠
   normalizePath(inputPath) {
-    if (!inputPath) return '';
-    // 使用 path.normalize 进行标准化处理
-    let normalized = path.normalize(inputPath);
-    // 统一使用正斜杠以便于后续处理
-    normalized = normalized.replace(/\\/g, '/');
-    // 清理多余的斜杠
-    normalized = normalized.replace(/\/+/g, '/');
-    // 确保绝对路径格式
-    if (/^[A-Za-z]:/.test(inputPath)) {
-      return normalized;
-    }
-    return normalized;
+    // 统一将所有反斜杠转换为正斜杠（Windows也支持正斜杠）
+    return inputPath.replace(/\\/g, '/');
   }
 
   // 路径验证和调试辅助方法
