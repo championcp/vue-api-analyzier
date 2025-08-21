@@ -11,10 +11,18 @@ class UniversalVueApiAnalyzer {
     this.totalFiles = 0;
   }
 
-  // 跨平台路径规范化 - 统一转换为正斜杠
+  // 跨平台路径规范化
   normalizePath(inputPath) {
-    // 统一将所有反斜杠转换为正斜杠（Windows也支持正斜杠）
-    return inputPath.replace(/\\/g, '/');
+    // 首先将所有反斜杠转换为正斜杠
+    let normalized = inputPath.replace(/\\/g, '/');
+    // 移除重复的斜杠
+    normalized = normalized.replace(/\/+/g, '/');
+    // 在Windows上，保持驱动器字母的冒号
+    if (/^[A-Za-z]:/.test(inputPath)) {
+      // Windows绝对路径，保持原样但规范化分隔符
+      return normalized;
+    }
+    return normalized;
   }
 
   // 通用方法：查找项目的src根目录（增强的跨平台路径处理）
