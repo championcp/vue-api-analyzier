@@ -305,6 +305,7 @@ class EnhancedMobileRouteApiAnalyzer {
     }
     
     // 也处理直接的路由对象（不在数组中的）
+    // 修改正则表达式以支持Layout路由（可能只有children而没有component）
     const singleRouteRegex = /\{\s*path:\s*['"`]([^'"`]+)['"`][^{}]*?(?:name:\s*['"`]([^'"`]*?)['"`])?[^{}]*?(?:component:\s*([^,\}\n]+))?[^{}]*?\}/gs;
     let match;
     
@@ -313,6 +314,9 @@ class EnhancedMobileRouteApiAnalyzer {
       const path = match[1];
       const name = match[2] || '';
       const componentString = match[3] ? match[3].trim() : '';
+      
+      // 检查是否为Layout路由（有children但可能没有component）
+      const hasChildren = routeString.includes('children:');
       
       // 解析 _import 参数得到组件路径
       const componentPath = this.parseImportPath(componentString);
@@ -323,21 +327,30 @@ class EnhancedMobileRouteApiAnalyzer {
         componentPath: componentPath,
         componentString: componentString,
         source: sourceFile,
-        level: this.calculateRouteLevel(path)
+        level: this.calculateRouteLevel(path),
+        hasChildren: hasChildren,
+        isLayout: hasChildren && (!componentString || componentString === '')
       };
       
-      // 存储到路由表
-      if (name) {
-        this.routeMap.set(name, routeInfo);
-        console.log(`  路由: ${name} (${path}) -> ${componentPath}`);
+      // 存储到路由表 - 修改条件以包含Layout路由
+      if (name || hasChildren) {
+        // 为Layout路由生成默认名称（如果没有显式name）
+        const routeKey = name || `layout_${path.replace(/[\/\-]/g, '_').substring(1)}`;
+        if (!name && hasChildren) {
+          routeInfo.name = routeKey;
+          routeInfo.generatedName = true;
+        }
+        
+        this.routeMap.set(routeKey, routeInfo);
+        console.log(`  路由: ${routeKey} (${path}) -> ${componentPath || '[Layout容器]'}`);
+        
+        // 建立组件到路由名称的映射
+        if (componentPath) {
+          this.componentRouteMap.set(componentPath, routeKey);
+        }
       }
       
-      // 建立组件到路由名称的映射
-      if (componentPath && name) {
-        this.componentRouteMap.set(componentPath, name);
-      }
-      
-      // 处理嵌套的children路由
+      // 处理嵌套的children路由 - 优先处理Layout路由的children
       this.extractChildrenRoutes(routeString, routeInfo, sourceFile);
     }
   }
@@ -360,6 +373,9 @@ class EnhancedMobileRouteApiAnalyzer {
       const componentMatch = routeString.match(/component:\s*([^,\}\n]+)/);
       const componentString = componentMatch ? componentMatch[1].trim() : '';
       
+      // 检查是否为Layout路由（有children但可能没有component）
+      const hasChildren = routeString.includes('children:');
+      
       // 解析 _import 参数得到组件路径
       const componentPath = this.parseImportPath(componentString);
       
@@ -370,18 +386,27 @@ class EnhancedMobileRouteApiAnalyzer {
         componentString: componentString,
         source: sourceFile,
         arrayName: arrayName,
-        level: this.calculateRouteLevel(path)
+        level: this.calculateRouteLevel(path),
+        hasChildren: hasChildren,
+        isLayout: hasChildren && (!componentString || componentString === '')
       };
       
-      // 存储到路由表
-      if (name) {
-        this.routeMap.set(name, routeInfo);
-        console.log(`    路由: ${name} (${path}) -> ${componentPath}`);
-      }
-      
-      // 建立组件到路由名称的映射
-      if (componentPath && name) {
-        this.componentRouteMap.set(componentPath, name);
+      // 存储到路由表 - 修改条件以包含Layout路由
+      if (name || hasChildren) {
+        // 为Layout路由生成默认名称（如果没有显式name）
+        const routeKey = name || `layout_${path.replace(/[\/\-]/g, '_').substring(1)}`;
+        if (!name && hasChildren) {
+          routeInfo.name = routeKey;
+          routeInfo.generatedName = true;
+        }
+        
+        this.routeMap.set(routeKey, routeInfo);
+        console.log(`    路由: ${routeKey} (${path}) -> ${componentPath || '[Layout容器]'}`);
+        
+        // 建立组件到路由名称的映射
+        if (componentPath) {
+          this.componentRouteMap.set(componentPath, routeKey);
+        }
       }
       
       // 处理嵌套的children路由
@@ -474,18 +499,26 @@ class EnhancedMobileRouteApiAnalyzer {
           name: childName,
           componentPath: componentPath,
           componentString: componentString,
-          parentRoute: parentRoute.name,
+          parentRoute: parentRoute.name || parentRoute.generatedName,
           source: sourceFile,
-          level: parentRoute.level + 1
+          level: parentRoute.level + 1,
+          isChildOfLayout: parentRoute.isLayout || false
         };
         
-        if (childName) {
-          this.routeMap.set(childName, childRoute);
-          console.log(`    子路由: ${childName} (${fullPath}) -> ${componentPath}`);
-        }
-        
-        if (componentPath && childName) {
-          this.componentRouteMap.set(componentPath, childName);
+        // 修改条件，即使没有name也要存储子路由（特别是Layout的children）
+        if (childName || componentPath) {
+          const routeKey = childName || `child_${fullPath.replace(/[\/\-]/g, '_').substring(1)}`;
+          if (!childName) {
+            childRoute.name = routeKey;
+            childRoute.generatedName = true;
+          }
+          
+          this.routeMap.set(routeKey, childRoute);
+          console.log(`    子路由: ${routeKey} (${fullPath}) -> ${componentPath}${parentRoute.isLayout ? ' [Layout子路由]' : ''}`);
+          
+          if (componentPath) {
+            this.componentRouteMap.set(componentPath, routeKey);
+          }
         }
       }
     }
@@ -1154,15 +1187,20 @@ class EnhancedMobileRouteApiAnalyzer {
     console.log('开始构建最终结果...');
     
     for (const [routeName, routeInfo] of this.routeMap.entries()) {
-      if (!routeInfo.componentPath) {
+      // 修改条件：Layout路由即使没有componentPath也应该被处理
+      if (!routeInfo.componentPath && !routeInfo.isLayout) {
         console.log(`跳过无组件路径的路由: ${routeName}`);
         continue;
       }
       
-      console.log(`处理路由: ${routeName} -> ${routeInfo.componentPath}`);
+      console.log(`处理路由: ${routeName} -> ${routeInfo.componentPath || '[Layout容器]'}`);
       
-      // 获取API调用信息（包括子组件）
-      const apiInfo = this.parseVueComponentForApi(routeInfo.componentPath);
+      let apiInfo = { apiImports: [], hasApiCalls: false, childComponents: [] };
+      
+      // 对于有componentPath的路由，正常解析API
+      if (routeInfo.componentPath) {
+        apiInfo = this.parseVueComponentForApi(routeInfo.componentPath);
+      }
       
       // 获取父路由
       const parentRouteName = this.parentChildRelations.get(routeName) || routeInfo.parentRoute || '';
