@@ -289,20 +289,8 @@ class EnhancedMobileRouteApiAnalyzer {
 
   // 提取所有路由对象
   extractAllRoutes(content, sourceFile) {
-    // 首先查找所有const数组定义
-    const arrayDefRegex = /const\s+(\w+)\s*=\s*\[([\s\S]*?)\]/g;
-    let arrayMatch;
-    
-    while ((arrayMatch = arrayDefRegex.exec(content)) !== null) {
-      const arrayName = arrayMatch[1];
-      const arrayContent = arrayMatch[2];
-      
-      // 只处理包含路由对象的数组
-      if (arrayContent.includes('path:') || arrayContent.includes('component:')) {
-        console.log(`  处理路由数组: ${arrayName}`);
-        this.extractRoutesFromArrayContent(arrayContent, sourceFile, arrayName);
-      }
-    }
+    // 使用更智能的方法查找所有const数组定义，正确处理嵌套结构
+    this.extractArrayDefinitions(content, sourceFile);
     
     // 也处理直接的路由对象（不在数组中的）
     const singleRouteRegex = /\{\s*path:\s*['"`]([^'"`]+)['"`][^{}]*?(?:name:\s*['"`]([^'"`]*?)['"`])?[^{}]*?(?:component:\s*([^,\}\n]+))?[^{}]*?\}/gs;
@@ -314,6 +302,9 @@ class EnhancedMobileRouteApiAnalyzer {
       const name = match[2] || '';
       const componentString = match[3] ? match[3].trim() : '';
       
+      // 检查是否为Layout路由（有children但可能没有component）
+      const hasChildren = routeString.includes('children:');
+      
       // 解析 _import 参数得到组件路径
       const componentPath = this.parseImportPath(componentString);
       
@@ -323,34 +314,222 @@ class EnhancedMobileRouteApiAnalyzer {
         componentPath: componentPath,
         componentString: componentString,
         source: sourceFile,
-        level: this.calculateRouteLevel(path)
+        level: this.calculateRouteLevel(path),
+        hasChildren: hasChildren,
+        isLayout: hasChildren && (!componentString || componentString === '')
       };
       
-      // 存储到路由表
-      if (name) {
-        this.routeMap.set(name, routeInfo);
-        console.log(`  路由: ${name} (${path}) -> ${componentPath}`);
+      // 存储到路由表 - 修改条件以包含Layout路由
+      if (name || hasChildren) {
+        // 为Layout路由生成默认名称（如果没有显式name）
+        const routeKey = name || `layout_${path.replace(/[\/\-]/g, '_').substring(1)}`;
+        if (!name && hasChildren) {
+          routeInfo.name = routeKey;
+          routeInfo.generatedName = true;
+        }
+        
+        this.routeMap.set(routeKey, routeInfo);
+        console.log(`  路由: ${routeKey} (${path}) -> ${componentPath || '[Layout容器]'}`);
+        
+        // 建立组件到路由名称的映射
+        if (componentPath) {
+          this.componentRouteMap.set(componentPath, routeKey);
+        }
       }
       
-      // 建立组件到路由名称的映射
-      if (componentPath && name) {
-        this.componentRouteMap.set(componentPath, name);
-      }
-      
-      // 处理嵌套的children路由
+      // 处理嵌套的children路由 - 优先处理Layout路由的children
       this.extractChildrenRoutes(routeString, routeInfo, sourceFile);
     }
   }
 
-  // 从数组内容中提取路由
-  extractRoutesFromArrayContent(arrayContent, sourceFile, arrayName) {
-    // 匹配路由对象，支持嵌套的children
-    const routeObjectRegex = /\{\s*path:\s*['"`]([^'"`]+)['"`][^{}]*?(?:\{[^{}]*\}[^{}]*?)*\}/gs;
+  // 智能提取数组定义，正确处理嵌套的方括号
+  extractArrayDefinitions(content, sourceFile) {
+    // 查找所有const数组开始位置
+    const constArrayRegex = /const\s+(\w+)\s*=\s*\[/g;
     let match;
     
-    while ((match = routeObjectRegex.exec(arrayContent)) !== null) {
-      const routeString = match[0];
-      const path = match[1];
+    while ((match = constArrayRegex.exec(content)) !== null) {
+      const arrayName = match[1];
+      const arrayStart = match.index + match[0].length - 1; // 指向开始的 '['
+      
+      // 使用brackets matching找到完整的数组内容
+      const arrayContent = this.extractMatchingBrackets(content, arrayStart);
+      if (arrayContent && (arrayContent.includes('path:') || arrayContent.includes('component:'))) {
+        console.log(`  处理路由数组: ${arrayName}`);
+        // 去掉外层的方括号
+        const innerContent = arrayContent.substring(1, arrayContent.length - 1);
+        this.extractRoutesFromArrayContent(innerContent, sourceFile, arrayName);
+      }
+    }
+  }
+
+  // 提取匹配的方括号内容
+  extractMatchingBrackets(content, startPos) {
+    if (content[startPos] !== '[') return null;
+    
+    let bracketCount = 0;
+    let inString = false;
+    let stringChar = null;
+    let position = startPos;
+    
+    while (position < content.length) {
+      const char = content[position];
+      
+      // 处理字符串内容，在字符串内不处理方括号
+      if (!inString && (char === '"' || char === "'" || char === '`')) {
+        inString = true;
+        stringChar = char;
+      } else if (inString && char === stringChar && content[position - 1] !== '\\') {
+        inString = false;
+        stringChar = null;
+      } else if (!inString) {
+        if (char === '[') {
+          bracketCount++;
+        } else if (char === ']') {
+          bracketCount--;
+          if (bracketCount === 0) {
+            // 找到匹配的结束方括号
+            return content.substring(startPos, position + 1);
+          }
+        }
+      }
+      position++;
+    }
+    
+    return null; // 没有找到匹配的结束方括号
+  }
+
+  // 从数组内容中提取路由 - 使用递归解析替代复杂正则表达式
+  extractRoutesFromArrayContent(arrayContent, sourceFile, arrayName) {
+    console.log(`    使用递归解析方法处理路由数组: ${arrayName}`);
+    
+    // 使用递归方法解析完整的路由对象
+    const routeObjects = this.parseRouteObjectsRecursively(arrayContent);
+    
+    for (const routeObj of routeObjects) {
+      const routeInfo = {
+        path: routeObj.path,
+        name: routeObj.name,
+        componentPath: routeObj.componentPath,
+        componentString: routeObj.componentString,
+        source: sourceFile,
+        arrayName: arrayName,
+        level: this.calculateRouteLevel(routeObj.path),
+        hasChildren: routeObj.hasChildren,
+        isLayout: routeObj.hasChildren && (!routeObj.componentString || routeObj.componentString === '')
+      };
+      
+      // 存储到路由表 - 修改条件以包含Layout路由
+      if (routeObj.name || routeObj.hasChildren) {
+        // 为Layout路由生成默认名称（如果没有显式name）
+        const routeKey = routeObj.name || `layout_${routeObj.path.replace(/[\/\-]/g, '_').substring(1)}`;
+        if (!routeObj.name && routeObj.hasChildren) {
+          routeInfo.name = routeKey;
+          routeInfo.generatedName = true;
+        }
+        
+        this.routeMap.set(routeKey, routeInfo);
+        console.log(`    路由: ${routeKey} (${routeObj.path}) -> ${routeObj.componentPath || '[Layout容器]'}`);
+        
+        // 建立组件到路由名称的映射
+        if (routeObj.componentPath) {
+          this.componentRouteMap.set(routeObj.componentPath, routeKey);
+        }
+      }
+      
+      // 处理嵌套的children路由 - 传入完整的路由对象字符串
+      this.extractChildrenRoutes(routeObj.fullString, routeInfo, sourceFile);
+    }
+  }
+
+  // 递归解析路由对象，只解析顶层路由，不深入children内部
+  parseRouteObjectsRecursively(content) {
+    const routes = [];
+    let position = 0;
+    
+    while (position < content.length) {
+      // 查找下一个可能的路由对象开始位置
+      const pathMatch = content.substring(position).match(/path:\s*['"`]([^'"`]+)['"`]/);
+      if (!pathMatch) break;
+      
+      const pathStartPos = position + content.substring(position).indexOf(pathMatch[0]);
+      
+      // 从path位置向前查找对应的开始花括号
+      let braceStart = pathStartPos;
+      while (braceStart > position && content[braceStart] !== '{') {
+        braceStart--;
+      }
+      
+      if (braceStart === position && content[braceStart] !== '{') {
+        // 没找到开始花括号，跳过这个匹配
+        position = pathStartPos + pathMatch[0].length;
+        continue;
+      }
+      
+      // 从开始花括号位置找到匹配的结束花括号
+      const routeString = this.extractMatchingBraces(content, braceStart);
+      if (!routeString) {
+        position = pathStartPos + pathMatch[0].length;
+        continue;
+      }
+      
+      // 解析路由对象
+      const routeObj = this.parseRouteObjectFromString(routeString);
+      if (routeObj) {
+        routes.push(routeObj);
+      }
+      
+      // 移动到下一个位置继续查找
+      position = braceStart + routeString.length;
+    }
+    
+    console.log(`    递归解析完成，找到 ${routes.length} 个路由对象`);
+    return routes;
+  }
+
+  // 提取匹配的花括号内容，正确处理嵌套
+  extractMatchingBraces(content, startPos) {
+    let braceCount = 0;
+    let inString = false;
+    let stringChar = null;
+    let position = startPos;
+    
+    while (position < content.length) {
+      const char = content[position];
+      
+      // 处理字符串内容，在字符串内不处理花括号
+      if (!inString && (char === '"' || char === "'" || char === '`')) {
+        inString = true;
+        stringChar = char;
+      } else if (inString && char === stringChar && content[position - 1] !== '\\') {
+        inString = false;
+        stringChar = null;
+      } else if (!inString) {
+        if (char === '{') {
+          braceCount++;
+        } else if (char === '}') {
+          braceCount--;
+          if (braceCount === 0) {
+            // 找到匹配的结束花括号
+            return content.substring(startPos, position + 1);
+          }
+        }
+      }
+      
+      position++;
+    }
+    
+    return null; // 没找到匹配的结束花括号
+  }
+
+  // 从路由字符串解析路由对象信息
+  parseRouteObjectFromString(routeString) {
+    try {
+      // 提取path
+      const pathMatch = routeString.match(/path:\s*['"`]([^'"`]+)['"`]/);
+      if (!pathMatch) return null;
+      
+      const path = pathMatch[1];
       
       // 提取name
       const nameMatch = routeString.match(/name:\s*['"`]([^'"`]*?)['"`]/);
@@ -360,32 +539,25 @@ class EnhancedMobileRouteApiAnalyzer {
       const componentMatch = routeString.match(/component:\s*([^,\}\n]+)/);
       const componentString = componentMatch ? componentMatch[1].trim() : '';
       
+      // 检查是否有children
+      const hasChildren = routeString.includes('children:');
+      
       // 解析 _import 参数得到组件路径
       const componentPath = this.parseImportPath(componentString);
       
-      const routeInfo = {
+      console.log(`      解析路由对象: path=${path}, name=${name}, hasChildren=${hasChildren}, componentPath=${componentPath}`);
+      
+      return {
         path: path,
         name: name,
-        componentPath: componentPath,
         componentString: componentString,
-        source: sourceFile,
-        arrayName: arrayName,
-        level: this.calculateRouteLevel(path)
+        componentPath: componentPath,
+        hasChildren: hasChildren,
+        fullString: routeString
       };
-      
-      // 存储到路由表
-      if (name) {
-        this.routeMap.set(name, routeInfo);
-        console.log(`    路由: ${name} (${path}) -> ${componentPath}`);
-      }
-      
-      // 建立组件到路由名称的映射
-      if (componentPath && name) {
-        this.componentRouteMap.set(componentPath, name);
-      }
-      
-      // 处理嵌套的children路由
-      this.extractChildrenRoutes(routeString, routeInfo, sourceFile);
+    } catch (error) {
+      console.warn(`    解析路由对象失败: ${error.message}`);
+      return null;
     }
   }
 
@@ -453,39 +625,50 @@ class EnhancedMobileRouteApiAnalyzer {
     return '';
   }
 
-  // 提取子路由
+  // 提取子路由 - 使用改进的递归方法
   extractChildrenRoutes(parentRouteString, parentRoute, sourceFile) {
-    const childrenMatch = parentRouteString.match(/children:\s*\[([\s\S]*?)\]/);
+    const childrenMatch = parentRouteString.match(/children:\s*\[([\s\S]*?)\](?=[^]*$|\s*[,}])/);
     if (childrenMatch) {
       const childrenContent = childrenMatch[1];
-      const childRouteRegex = /\{\s*path:\s*['"`]([^'"`]+)['"`][^}]*?(?:name:\s*['"`]([^'"`]*?)['"`])?[^}]*?(?:component:\s*([^,\}]+))?[^}]*?\}/g;
-      let childMatch;
+      console.log(`    开始解析${parentRoute.path || parentRoute.name}的子路由...`);
       
-      while ((childMatch = childRouteRegex.exec(childrenContent)) !== null) {
-        const childPath = childMatch[1];
-        const childName = childMatch[2] || '';
-        const componentString = childMatch[3] || '';
-        
-        const fullPath = this.buildFullPath(parentRoute.path, childPath);
-        const componentPath = this.parseImportPath(componentString);
+      // 使用递归方法解析子路由
+      const childRouteObjects = this.parseRouteObjectsRecursively(childrenContent);
+      
+      for (const childObj of childRouteObjects) {
+        const fullPath = this.buildFullPath(parentRoute.path, childObj.path);
         
         const childRoute = {
           path: fullPath,
-          name: childName,
-          componentPath: componentPath,
-          componentString: componentString,
-          parentRoute: parentRoute.name,
+          name: childObj.name,
+          componentPath: childObj.componentPath,
+          componentString: childObj.componentString,
+          parentRoute: parentRoute.name || parentRoute.generatedName,
           source: sourceFile,
-          level: parentRoute.level + 1
+          level: parentRoute.level + 1,
+          isChildOfLayout: parentRoute.isLayout || false,
+          hasChildren: childObj.hasChildren
         };
         
-        if (childName) {
-          this.routeMap.set(childName, childRoute);
-          console.log(`    子路由: ${childName} (${fullPath}) -> ${componentPath}`);
+        // 所有有name或componentPath的路由都要存储
+        if (childObj.name || childObj.componentPath) {
+          const routeKey = childObj.name || `child_${fullPath.replace(/[\/\-]/g, '_').substring(1)}`;
+          if (!childObj.name) {
+            childRoute.name = routeKey;
+            childRoute.generatedName = true;
+          }
+          
+          this.routeMap.set(routeKey, childRoute);
+          console.log(`    子路由: ${routeKey} (${fullPath}) -> ${childObj.componentPath}${parentRoute.isLayout ? ' [Layout子路由]' : ''}`);
+          
+          if (childObj.componentPath) {
+            this.componentRouteMap.set(childObj.componentPath, routeKey);
+          }
         }
         
-        if (componentPath && childName) {
-          this.componentRouteMap.set(componentPath, childName);
+        // 递归处理子路由的children（如果有的话）
+        if (childObj.hasChildren) {
+          this.extractChildrenRoutes(childObj.fullString, childRoute, sourceFile);
         }
       }
     }
