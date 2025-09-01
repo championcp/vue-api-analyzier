@@ -310,7 +310,20 @@ vue-project/
 
 ## 🔄 更新日志
 
-### v2.1.0 (当前版本)
+### v2.2.0 (当前版本)
+- 🐛 **重要修复**：修复嵌套import和API调用关系分析问题，支持复杂的混入文件结构
+- ✨ **新增功能**：增强对.js文件（如Zdata.js等混入文件）的支持和分析
+- 🚀 **性能提升**：重构路径处理系统，新增safeResolve(), safeJoin(), safeRelative()方法
+- 🔧 **架构优化**：完善跨平台路径兼容性，确保Linux/Windows/macOS三平台结果一致
+- 📊 **分析能力增强**：支持深度嵌套的组件导入链（Vue组件 → JS混入 → 多个子组件 → API调用）
+- 🔍 **bug修复示例**：yxxt_lc_index路由从缺失API调用提升到136条完整记录
+- 💡 **方法增强**：
+  - 新增parseJsFileImports()专门处理JS文件导入
+  - 新增processApiImport()统一API导入处理逻辑  
+  - 新增resolveComponentPath()智能组件路径解析
+  - 重构parseChildComponents()支持.js和.vue文件混合场景
+
+### v2.1.0
 - 🐛 **重要修复**：完全解决Windows平台下的路径识别问题
 - 🐛 **重要修复**：修复Windows环境下API记录丢失问题（从141条缺失恢复到完整记录）
 - 🚀 优化跨平台路径处理策略，简化normalizePath方法
