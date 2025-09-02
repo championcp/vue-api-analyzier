@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const ConfigManager = require('./lib/ConfigManager');
 
 class EnhancedMobileRouteApiAnalyzer {
   constructor(srcPath) {
@@ -14,6 +15,9 @@ class EnhancedMobileRouteApiAnalyzer {
     this.results = [];
     this.processedRoutes = 0;
     this.totalRoutes = 0;
+    
+    // 初始化配置管理器
+    this.configManager = new ConfigManager();
     
     // 添加平台调试信息
     console.log(`平台检测: ${this.platform}`);
@@ -104,14 +108,8 @@ class EnhancedMobileRouteApiAnalyzer {
   preloadUrlConstants() {
     let srcRootPath = this.findSrcRootPath();
     
-    const baseUrlFiles = [
-      this.safeJoin(srcRootPath, 'api/baseUrl.js'),
-      this.safeJoin(srcRootPath, 'api/qz-baseUrl.js'),
-      this.safeJoin(srcRootPath, 'utils/baseUrl.js'),
-      this.safeJoin(srcRootPath, 'config/baseUrl.js'),
-      this.safeJoin(srcRootPath, 'constants/baseUrl.js'),
-      this.safeJoin(srcRootPath, 'common/baseUrl.js')
-    ];
+    // 使用配置管理器获取baseUrl文件路径
+    const baseUrlFiles = this.configManager.getBaseUrlPaths(srcRootPath);
     
     for (const file of baseUrlFiles) {
       // 使用safeResolve确保绝对路径和跨平台兼容性
@@ -263,12 +261,8 @@ class EnhancedMobileRouteApiAnalyzer {
   buildCompleteRouteMap() {
     let srcRootPath = this.findSrcRootPath();
     
-    // 按照依赖关系解析：index.js -> routes.js -> qz-routes.js
-    const routerFiles = [
-      this.safeJoin(srcRootPath, 'router/qz-routes.js'),  // 最底层
-      this.safeJoin(srcRootPath, 'router/routes.js'),     // 中间层
-      this.safeJoin(srcRootPath, 'router/index.js')       // 顶层
-    ];
+    // 使用配置管理器获取路由文件路径
+    const routerFiles = this.configManager.getRoutePaths(srcRootPath);
     
     console.log('开始构建完整路由表...');
     
@@ -1053,11 +1047,8 @@ class EnhancedMobileRouteApiAnalyzer {
   preloadApiFiles() {
     let srcRootPath = this.findSrcRootPath();
     
-    // 扫描多个可能的API目录
-    const apiDirectories = [
-      this.safeJoin(srcRootPath, 'api'),
-      this.safeJoin(srcRootPath, 'views/modules')  // 添加modules目录扫描
-    ];
+    // 使用配置管理器获取API目录路径
+    const apiDirectories = this.configManager.getApiDirectories(srcRootPath);
     
     console.log('开始预加载API文件...');
     

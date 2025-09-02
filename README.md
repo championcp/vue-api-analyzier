@@ -13,6 +13,7 @@
 
 ## 🚀 功能特性
 
+- **⚙️ 灵活配置系统**：支持JSON配置文件自定义路径映射、URL常量和输出格式，适应不同项目结构
 - **📱 移动端路由支持**：专门优化的移动端Vue Router分析，支持复杂的嵌套路由结构
 - **🔗 API调用关系分析**：自动识别组件中的API函数调用，解析URL和说明信息
 - **🗺️ 完整路由映射**：构建完整的路由表，包括路由名称、路径、组件映射关系
@@ -28,6 +29,80 @@
 - Vue Router
 
 ## 🛠️ 使用方法
+
+### ⚙️ 配置系统
+
+Vue API分析器支持灵活的配置系统，可以通过JSON配置文件自定义分析行为，以适应不同项目结构。
+
+#### 配置优先级
+
+1. **自定义配置路径**：命令行参数指定的配置文件
+2. **项目配置**：项目根目录的`vue-api-analyzer.config.json`
+3. **默认配置**：内置的`config/analyzer-config.json`
+
+#### 使用自定义配置
+
+```bash
+# 使用自定义配置文件
+node enhanced-mobile-route-api-analyzer.js /path/to/src --config ./my-config.json
+node universal-vue-api-analyzer.js /path/to/src --config ./my-config.json
+```
+
+#### 配置文件结构
+
+创建`vue-api-analyzer.config.json`文件来自定义分析器行为：
+
+```json
+{
+  "name": "我的项目自定义配置",
+  "paths": {
+    "baseUrl": {
+      "searchPaths": [
+        "api/baseUrl.js",
+        "api/my-custom-baseUrl.js",
+        "config/urls.js"
+      ]
+    },
+    "routes": {
+      "searchPaths": [
+        "router/my-routes.js",
+        "router/routes.js",
+        "router/index.js"
+      ]
+    },
+    "api": {
+      "directories": [
+        "api",
+        "services",
+        "views/modules"
+      ]
+    }
+  },
+  "urlConstants": {
+    "mappings": {
+      "MY_API_URL": "/my-api/v1",
+      "CUSTOM_PATH": "/custom/v2"
+    }
+  },
+  "output": {
+    "mobile": {
+      "filename": "${projectName}_mobile_report.csv"
+    },
+    "pc": {
+      "filename": "${projectName}_pc_report.csv"
+    }
+  }
+}
+```
+
+#### 创建配置文件示例
+
+```bash
+# 在项目根目录创建示例配置文件
+node enhanced-mobile-route-api-analyzer.js --create-config
+# 或
+node universal-vue-api-analyzer.js --create-config
+```
 
 ### PC端应用分析
 
@@ -310,7 +385,23 @@ vue-project/
 
 ## 🔄 更新日志
 
-### v2.2.0 (当前版本)
+### v3.0.0 (当前版本)
+- ✨ **重大新增**：引入完整的配置系统架构，支持JSON配置文件自定义分析行为
+- ✨ **新增功能**：ConfigManager配置管理器，支持配置文件层级覆盖（自定义 > 项目 > 默认）
+- ⚙️ **配置特性**：
+  - 可配置baseUrl文件搜索路径（支持多种命名约定）
+  - 可配置路由文件搜索路径（按依赖关系排序）
+  - 可配置API目录扫描路径
+  - 可配置URL常量映射和自定义解析模式
+  - 可配置输出文件格式和CSV表头
+  - 可配置分析行为（最大深度、文件类型、缓存等）
+- 🔧 **架构优化**：完全向后兼容，无需修改现有使用方式
+- 📝 **配置验证**：内置配置验证机制，确保配置完整性和正确性
+- 💡 **使用便利**：支持`--config`参数指定自定义配置文件
+- 🎯 **项目适配**：通过配置文件轻松适应不同项目的目录结构和命名约定
+- ✅ **功能无损验证**：通过二进制级别文件对比确认，配置化改进完全保持原有功能
+
+### v2.2.0
 - 🐛 **重要修复**：修复嵌套import和API调用关系分析问题，支持复杂的混入文件结构
 - ✨ **新增功能**：增强对.js文件（如Zdata.js等混入文件）的支持和分析
 - 🚀 **性能提升**：重构路径处理系统，新增safeResolve(), safeJoin(), safeRelative()方法

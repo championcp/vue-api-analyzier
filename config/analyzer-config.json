@@ -1,0 +1,97 @@
+{
+  "name": "Vue API分析器默认配置",
+  "version": "1.0.0",
+  "description": "Vue API分析器的默认配置文件，支持自定义路径映射、URL前缀和输出格式",
+  
+  "paths": {
+    "description": "文件路径配置",
+    "baseUrl": {
+      "description": "baseUrl文件搜索路径列表，按优先级排序",
+      "searchPaths": [
+        "api/baseUrl.js",
+        "api/qz-baseUrl.js",
+        "utils/baseUrl.js",
+        "config/baseUrl.js",
+        "constants/baseUrl.js",
+        "common/baseUrl.js"
+      ]
+    },
+    "routes": {
+      "description": "路由文件搜索路径列表，按依赖关系排序",
+      "searchPaths": [
+        "router/qz-routes.js",
+        "router/routes.js",
+        "router/index.js"
+      ]
+    },
+    "api": {
+      "description": "API文件搜索目录列表",
+      "directories": [
+        "api",
+        "views/modules"
+      ]
+    },
+    "views": {
+      "description": "视图组件路径映射规则",
+      "mappings": [
+        {
+          "from": "/modules",
+          "to": "/views"
+        }
+      ]
+    }
+  },
+  
+  "urlConstants": {
+    "description": "业务URL前缀常量映射",
+    "mappings": {
+      "YXXT_URL": "/yxxt/v3",
+      "PATH": "/xssw/v3",
+      "BASE_URL": "",
+      "API_URL": ""
+    },
+    "customPatterns": {
+      "description": "自定义URL常量解析模式",
+      "functionCallPattern": "\\{([^}]+)\\(\\)\\}",
+      "constantPattern": "\\{([^}]+)\\}"
+    }
+  },
+  
+  "output": {
+    "description": "输出文件配置",
+    "mobile": {
+      "filename": "${projectName}_enhanced_route_api_analysis.csv",
+      "suffix": "_enhanced_route_api_analysis"
+    },
+    "pc": {
+      "filename": "${projectName}_api_extract_result.csv", 
+      "suffix": "_api_extract_result"
+    },
+    "csvHeaders": {
+      "mobile": ["组件名称", "组件类型", "父组件", "导入的API函数", "URL", "说明"],
+      "pc": ["文件路径", "导入的API函数", "URL", "说明", "文件类型", "相对路径"]
+    }
+  },
+  
+  "analysis": {
+    "description": "分析行为配置",
+    "maxDepth": 3,
+    "supportedFileExtensions": [".vue", ".js", ".ts"],
+    "skipDirectories": ["node_modules", ".git", "dist", "build"],
+    "cacheEnabled": true,
+    "debugMode": false
+  },
+  
+  "filters": {
+    "description": "过滤规则配置",
+    "excludePatterns": [
+      "node_modules",
+      ".git",
+      "dist",
+      "build",
+      ".DS_Store"
+    ],
+    "includeOnlyApi": false,
+    "minApiCallCount": 0
+  }
+}
