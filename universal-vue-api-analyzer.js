@@ -1,14 +1,18 @@
 const fs = require('fs');
 const path = require('path');
+const ConfigManager = require('./lib/ConfigManager');
 
 class UniversalVueApiAnalyzer {
-  constructor(srcPath) {
+  constructor(srcPath, configPath = null) {
     this.srcPath = srcPath;
     this.apiCache = new Map();
     this.urlConstantsCache = new Map();
     this.results = [];
     this.processedFiles = 0;
     this.totalFiles = 0;
+    
+    // 初始化配置管理器
+    this.configManager = new ConfigManager(configPath);
   }
 
   // 跨平台路径规范化

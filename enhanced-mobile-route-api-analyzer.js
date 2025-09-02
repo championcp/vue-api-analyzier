@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const ConfigManager = require('./lib/ConfigManager');
 
 class EnhancedMobileRouteApiAnalyzer {
   constructor(srcPath) {
@@ -15,6 +16,9 @@ class EnhancedMobileRouteApiAnalyzer {
     this.processedRoutes = 0;
     this.totalRoutes = 0;
     
+    // 初始化配置管理器
+    this.configManager = new ConfigManager();
+    
     // 添加平台调试信息
     console.log(`平台检测: ${this.platform}`);
     console.log(`路径分隔符: ${path.sep}`);
@@ -23,7 +27,23 @@ class EnhancedMobileRouteApiAnalyzer {
   // 跨平台路径规范化 - 统一转换为正斜杠
   normalizePath(inputPath) {
     // 统一将所有反斜杠转换为正斜杠（Windows也支持正斜杠）
+    if (!inputPath) return '';
     return inputPath.replace(/\\/g, '/');
+  }
+
+  // 安全的路径解析 - 确保所有路径都经过规范化
+  safeResolve(...pathSegments) {
+    return this.normalizePath(path.resolve(...pathSegments));
+  }
+
+  // 安全的路径连接 - 确保所有路径都经过规范化
+  safeJoin(...pathSegments) {
+    return this.normalizePath(path.join(...pathSegments));
+  }
+
+  // 安全的相对路径计算 - 确保所有路径都经过规范化
+  safeRelative(from, to) {
+    return this.normalizePath(path.relative(from, to));
   }
 
   // 路径验证和调试辅助方法
@@ -43,16 +63,15 @@ class EnhancedMobileRouteApiAnalyzer {
     try {
       // 获取src根路径和命令行参数路径
       const srcRootPath = this.findSrcRootPath();
-      const cmdArgPath = this.normalizePath(path.resolve(this.srcPath));
+      const cmdArgPath = this.safeResolve(this.srcPath);
       
       // 获取组件的完整路径
-      const fullComponentPath = path.join(srcRootPath, componentPath);
+      const fullComponentPath = this.safeJoin(srcRootPath, componentPath);
       
       // 计算相对于命令行参数路径的相对路径
-      const relativePath = path.relative(cmdArgPath, fullComponentPath);
+      const relativePath = this.safeRelative(cmdArgPath, fullComponentPath);
       
-      // 规范化路径分隔符
-      return this.normalizePath(relativePath);
+      return relativePath;
     } catch (error) {
       console.warn(`路径转换失败: ${componentPath}, 使用原路径`);
       return componentPath;
@@ -61,7 +80,7 @@ class EnhancedMobileRouteApiAnalyzer {
 
   // 查找项目的src根目录
   findSrcRootPath() {
-    let currentPath = this.normalizePath(path.resolve(this.srcPath));
+    let currentPath = this.safeResolve(this.srcPath);
     
     if (currentPath.endsWith('/src')) {
       return currentPath;
@@ -71,36 +90,30 @@ class EnhancedMobileRouteApiAnalyzer {
     
     for (let i = pathParts.length; i > 0; i--) {
       const testPath = pathParts.slice(0, i).join('/');
-      const potentialSrcPath = path.join(testPath, 'src');
+      const potentialSrcPath = this.safeJoin(testPath, 'src');
       
-      // 使用path.resolve确保绝对路径
-      const resolvedPath = path.resolve(potentialSrcPath);
+      // 使用safeResolve确保绝对路径和跨平台兼容性
+      const resolvedPath = this.safeResolve(potentialSrcPath);
       const exists = this.validateAndLogPath(potentialSrcPath, resolvedPath, `查找src目录-尝试${i}`);
       if (exists) {
         console.log(`找到src目录: ${resolvedPath}`);
-        return this.normalizePath(potentialSrcPath);
+        return potentialSrcPath;
       }
     }
     
-    return this.normalizePath(path.join(this.srcPath, 'src'));
+    return this.safeJoin(this.srcPath, 'src');
   }
 
   // 预加载URL常量映射
   preloadUrlConstants() {
     let srcRootPath = this.findSrcRootPath();
     
-    const baseUrlFiles = [
-      path.join(srcRootPath, 'api/baseUrl.js'),
-      path.join(srcRootPath, 'api/qz-baseUrl.js'),
-      path.join(srcRootPath, 'utils/baseUrl.js'),
-      path.join(srcRootPath, 'config/baseUrl.js'),
-      path.join(srcRootPath, 'constants/baseUrl.js'),
-      path.join(srcRootPath, 'common/baseUrl.js')
-    ];
+    // 使用配置管理器获取baseUrl文件路径
+    const baseUrlFiles = this.configManager.getBaseUrlPaths(srcRootPath);
     
     for (const file of baseUrlFiles) {
-      // 使用path.resolve确保绝对路径
-      const resolvedPath = path.resolve(this.normalizePath(file));
+      // 使用safeResolve确保绝对路径和跨平台兼容性
+      const resolvedPath = this.safeResolve(file);
       console.log(`检查baseUrl文件: ${resolvedPath}`);
       if (fs.existsSync(resolvedPath)) {
         console.log(`正在解析baseUrl文件: ${resolvedPath}`);
@@ -217,8 +230,8 @@ class EnhancedMobileRouteApiAnalyzer {
   // 扫描目录获取所有文件
   scanDirectory(dir, extensions = []) {
     const files = [];
-    // 使用path.resolve确保绝对路径，并处理平台特定路径
-    const resolvedDir = path.resolve(this.normalizePath(dir));
+    // 使用safeResolve确保绝对路径和跨平台兼容性
+    const resolvedDir = this.safeResolve(dir);
     
     console.log(`扫描目录: ${resolvedDir}`);
     
@@ -230,15 +243,14 @@ class EnhancedMobileRouteApiAnalyzer {
     const items = fs.readdirSync(resolvedDir, { withFileTypes: true });
     
     for (const item of items) {
-      const fullPath = path.join(resolvedDir, item.name);
-      const normalizedPath = this.normalizePath(fullPath);
+      const fullPath = this.safeJoin(resolvedDir, item.name);
       
       if (item.isDirectory() && !item.name.startsWith('.')) {
-        files.push(...this.scanDirectory(normalizedPath, extensions));
+        files.push(...this.scanDirectory(fullPath, extensions));
       } else if (item.isFile()) {
         const ext = path.extname(item.name);
         if (extensions.length === 0 || extensions.includes(ext)) {
-          files.push(normalizedPath);
+          files.push(fullPath);
         }
       }
     }
@@ -249,17 +261,13 @@ class EnhancedMobileRouteApiAnalyzer {
   buildCompleteRouteMap() {
     let srcRootPath = this.findSrcRootPath();
     
-    // 按照依赖关系解析：index.js -> routes.js -> qz-routes.js
-    const routerFiles = [
-      path.join(srcRootPath, 'router/qz-routes.js'),  // 最底层
-      path.join(srcRootPath, 'router/routes.js'),     // 中间层
-      path.join(srcRootPath, 'router/index.js')       // 顶层
-    ];
+    // 使用配置管理器获取路由文件路径
+    const routerFiles = this.configManager.getRoutePaths(srcRootPath);
     
     console.log('开始构建完整路由表...');
     
     routerFiles.forEach(file => {
-      const resolvedPath = path.resolve(this.normalizePath(file));
+      const resolvedPath = this.safeResolve(file);
       const exists = this.validateAndLogPath(file, resolvedPath, '路由文件检查');
       if (exists) {
         console.log(`解析路由文件: ${file}`);
@@ -275,7 +283,7 @@ class EnhancedMobileRouteApiAnalyzer {
   // 增强的路由文件解析
   parseRouteFileEnhanced(filePath) {
     try {
-      const resolvedPath = path.resolve(this.normalizePath(filePath));
+      const resolvedPath = this.safeResolve(filePath);
       console.log(`解析路由文件: ${resolvedPath}`);
       const content = fs.readFileSync(resolvedPath, 'utf8');
       
@@ -591,8 +599,8 @@ class EnhancedMobileRouteApiAnalyzer {
       if (!importPath.endsWith('.vue')) {
         // 检查是否存在对应的index.vue文件
         const srcRootPath = this.findSrcRootPath();
-        const indexPath = path.join(srcRootPath, importPath, 'index.vue');
-        const resolvedIndexPath = path.resolve(this.normalizePath(indexPath));
+        const indexPath = this.safeJoin(srcRootPath, importPath, 'index.vue');
+        const resolvedIndexPath = this.safeResolve(indexPath);
         
         console.log(`    检查index.vue文件: ${resolvedIndexPath}`);
         
@@ -814,7 +822,7 @@ class EnhancedMobileRouteApiAnalyzer {
   // 解析API文件
   parseApiFile(filePath) {
     try {
-      const resolvedPath = path.resolve(this.normalizePath(filePath));
+      const resolvedPath = this.safeResolve(filePath);
       console.log(`解析API文件: ${resolvedPath}`);
       const content = fs.readFileSync(resolvedPath, 'utf8');
       const apis = {};
@@ -1039,16 +1047,13 @@ class EnhancedMobileRouteApiAnalyzer {
   preloadApiFiles() {
     let srcRootPath = this.findSrcRootPath();
     
-    // 扫描多个可能的API目录
-    const apiDirectories = [
-      path.join(srcRootPath, 'api'),
-      path.join(srcRootPath, 'views/modules')  // 添加modules目录扫描
-    ];
+    // 使用配置管理器获取API目录路径
+    const apiDirectories = this.configManager.getApiDirectories(srcRootPath);
     
     console.log('开始预加载API文件...');
     
     apiDirectories.forEach(apiDirPath => {
-      const resolvedApiDir = path.resolve(this.normalizePath(apiDirPath));
+      const resolvedApiDir = this.safeResolve(apiDirPath);
       if (!fs.existsSync(resolvedApiDir)) {
         console.log(`跳过不存在的目录: ${apiDirPath}`);
         return;
@@ -1061,16 +1066,12 @@ class EnhancedMobileRouteApiAnalyzer {
       
       apiFiles.forEach(file => {
         // 只处理明确是API文件的文件 - 使用跨平台兼容的路径匹配
-        const normalizedFile = this.normalizePath(file);
-        if (normalizedFile.includes('/api/') || normalizedFile.endsWith('/api.js') || normalizedFile.includes('\\api\\') || normalizedFile.endsWith('\\api.js')) {
+        if (file.includes('/api/') || file.endsWith('/api.js')) {
           console.log(`解析API文件: ${file}`);
           const apis = this.parseApiFile(file);
           
           // 使用跨平台兼容的相对路径计算
-          const normalizedSrcRoot = this.normalizePath(srcRootPath);
-          const normalizedFile = this.normalizePath(file);
-          // 使用path.relative进行跨平台相对路径计算，然后规范化
-          const relativePath = this.normalizePath(path.relative(normalizedSrcRoot, normalizedFile));
+          const relativePath = this.safeRelative(srcRootPath, file);
           
           Object.keys(apis).forEach(funcName => {
             const cacheKey = `${funcName}@${relativePath}`;
@@ -1088,7 +1089,7 @@ class EnhancedMobileRouteApiAnalyzer {
     console.log(`API预加载完成，共缓存 ${this.apiCache.size} 个函数`);
   }
 
-  // 分析Vue组件文件中的API调用
+  // 分析Vue组件文件中的API调用（支持.vue和.js文件）
   parseVueComponentForApi(componentPath, depth = 0, visitedComponents = new Set()) {
     try {
       // 防止无限递归和重复分析
@@ -1100,15 +1101,16 @@ class EnhancedMobileRouteApiAnalyzer {
       visitedComponents.add(normalizedPath);
       
       let srcRootPath = this.findSrcRootPath();
-      let fullPath = path.join(srcRootPath, componentPath);
+      let fullPath = this.safeJoin(srcRootPath, componentPath);
       
-      const resolvedPath = path.resolve(this.normalizePath(fullPath));
+      const resolvedPath = this.safeResolve(fullPath);
       
       if (!fs.existsSync(resolvedPath)) {
         return { apiImports: [], hasApiCalls: false, childComponents: [] };
       }
       
       const content = fs.readFileSync(resolvedPath, 'utf8');
+      const fileExtension = path.extname(componentPath);
       
       const result = {
         apiImports: [],
@@ -1116,107 +1118,243 @@ class EnhancedMobileRouteApiAnalyzer {
         childComponents: []
       };
       
-      // 解析API导入 - 支持多种导入路径格式
-      const apiImportRegex = /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`]([^'"`]+)['"`]/g;
-      let match;
-      
-      while ((match = apiImportRegex.exec(content)) !== null) {
-        const functions = match[1].split(',').map(f => f.trim().replace(/\s+as\s+\w+/, ''));
-        const importPath = match[2];
-        
-        console.log(`    发现导入: functions=[${functions.join(', ')}], importPath=${importPath}`);
-        
-        // 只处理API相关的导入
-        if (!importPath.includes('/api/') && !importPath.startsWith('@/api') && 
-            !importPath.includes('../api/') && !importPath.includes('@/views/modules/')) {
-          console.log(`    跳过非API导入: ${importPath}`);
-          continue;
-        }
-        
-        console.log(`    处理API导入: ${importPath}`);
-        
-        functions.forEach(funcName => {
-          // 尝试多种可能的文件路径
-          const possiblePaths = [];
-          
-          if (importPath.startsWith('@/')) {
-            // @/api/xgxt -> api/xgxt/index.js 和 api/xgxt.js
-            // @/views/modules/kqdk/api.js -> views/modules/kqdk/api.js (直接使用)
-            const basePath = importPath.replace('@/', '');
-            
-            if (basePath.endsWith('.js')) {
-              // 如果已经以.js结尾，直接使用
-              possiblePaths.push(this.normalizePath(basePath));
-            } else {
-              // 否则尝试index.js和.js扩展名
-              possiblePaths.push(this.normalizePath(basePath + '/index.js'));
-              possiblePaths.push(this.normalizePath(basePath + '.js'));
-            }
-          } else if (importPath.startsWith('../')) {
-            // 处理相对路径，例如 ../../../api/xgxt/index
-            // 需要基于当前组件路径解析
-            const currentDir = path.dirname(componentPath);
-            const resolvedPath = path.resolve(srcRootPath + currentDir, importPath);
-            // 使用path.relative进行跨平台相对路径计算
-            const relativePath = this.normalizePath(path.relative(srcRootPath, resolvedPath));
-            possiblePaths.push(this.normalizePath(relativePath + '.js'));
-            possiblePaths.push(this.normalizePath(relativePath + '/index.js'));
-            // 如果路径已经包含 index，也尝试不带 index 的版本
-            if (relativePath.endsWith('/index')) {
-              const withoutIndex = relativePath.slice(0, -6); // 移除 '/index'
-              possiblePaths.push(this.normalizePath(withoutIndex + '.js'));
-            }
-          }
-          
-          // 尝试每个可能的路径
-          console.log(`      查找函数: ${funcName}, 尝试路径: ${possiblePaths.join(', ')}`);
-          for (const expectedFilePath of possiblePaths) {
-            const cacheKey = `${funcName}@${expectedFilePath}`;
-            console.log(`        尝试缓存键: ${cacheKey}`);
-            
-            if (this.apiCache.has(cacheKey)) {
-              console.log(`        找到API: ${funcName} -> ${expectedFilePath}`);
-              const apiInfo = this.apiCache.get(cacheKey);
-              result.apiImports.push({
-                functionName: funcName,
-                importPath,
-                depth: depth,
-                sourceComponent: componentPath,
-                ...apiInfo
-              });
-              result.hasApiCalls = true;
-              break; // 找到就停止尝试其他路径
-            }
-          }
-        });
-      }
-      
-      // 解析子组件导入（Vue组件）
-      const childComponentImports = this.parseChildComponents(content, componentPath);
-      result.childComponents = childComponentImports;
-      
-      // 递归分析子组件的API调用
-      for (const childPath of childComponentImports) {
-        const childResult = this.parseVueComponentForApi(childPath, depth + 1, new Set(visitedComponents));
-        if (childResult.hasApiCalls) {
-          // 将子组件的API调用添加到当前组件结果中，并标记来源
-          childResult.apiImports.forEach(api => {
-            result.apiImports.push({
-              ...api,
-              isFromChild: true,
-              childSourcePath: childPath,
-              parentDepth: depth
-            });
-          });
-          result.hasApiCalls = true;
-        }
+      // 根据文件类型选择不同的解析策略
+      if (fileExtension === '.js') {
+        // 对于.js文件，解析所有import语句和可能的子组件导入
+        this.parseJsFileImports(content, componentPath, result, depth, visitedComponents);
+      } else {
+        // 对于.vue文件，使用原有逻辑
+        this.parseVueFileImports(content, componentPath, result, depth, visitedComponents);
       }
       
       return result;
     } catch (error) {
-      console.error(`错误: 解析Vue组件文件失败: ${componentPath} - ${error.message}`);
+      console.error(`错误: 解析组件文件失败: ${componentPath} - ${error.message}`);
       return { apiImports: [], hasApiCalls: false, childComponents: [] };
     }
+  }
+
+  // 解析JS文件的导入（混入、组件等）
+  parseJsFileImports(content, componentPath, result, depth, visitedComponents) {
+    console.log(`    解析JS文件: ${componentPath}`);
+    
+    // 解析所有import语句
+    const importRegex = /import\s+(?:\{\s*([^}]+)\s*\}|\*\s+as\s+\w+|\w+)\s+from\s*['"`]([^'"`]+)['"`]/g;
+    let match;
+    
+    while ((match = importRegex.exec(content)) !== null) {
+      const importedItems = match[1] ? match[1].split(',').map(f => f.trim().replace(/\s+as\s+\w+/, '')) : [];
+      const importPath = match[2];
+      
+      console.log(`      发现导入: items=[${importedItems.join(', ')}], importPath=${importPath}`);
+      
+      // 检查是否为API导入
+      if (this.isApiImport(importPath)) {
+        console.log(`      处理API导入: ${importPath}`);
+        this.processApiImport(importedItems, importPath, componentPath, result, depth);
+      }
+      
+      // 检查是否为子组件导入
+      if (this.isComponentImport(importPath)) {
+        console.log(`      发现子组件导入: ${importPath}`);
+        const childPath = this.resolveComponentPath(importPath, componentPath);
+        if (childPath) {
+          result.childComponents.push(childPath);
+          // 递归分析子组件
+          const childResult = this.parseVueComponentForApi(childPath, depth + 1, new Set(visitedComponents));
+          if (childResult.hasApiCalls) {
+            childResult.apiImports.forEach(api => {
+              result.apiImports.push({
+                ...api,
+                isFromChild: true,
+                childSourcePath: childPath,
+                parentDepth: depth
+              });
+            });
+            result.hasApiCalls = true;
+          }
+        }
+      }
+    }
+  }
+
+  // 解析Vue文件的导入
+  parseVueFileImports(content, componentPath, result, depth, visitedComponents) {
+    // 解析API导入 - 支持多种导入路径格式
+    const apiImportRegex = /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`]([^'"`]+)['"`]/g;
+    let match;
+    
+    while ((match = apiImportRegex.exec(content)) !== null) {
+      const functions = match[1].split(',').map(f => f.trim().replace(/\s+as\s+\w+/, ''));
+      const importPath = match[2];
+      
+      console.log(`    发现导入: functions=[${functions.join(', ')}], importPath=${importPath}`);
+      
+      // 只处理API相关的导入
+      if (this.isApiImport(importPath)) {
+        console.log(`    处理API导入: ${importPath}`);
+        this.processApiImport(functions, importPath, componentPath, result, depth);
+      }
+    }
+    
+    // 解析子组件导入（Vue组件）
+    const childComponentImports = this.parseChildComponents(content, componentPath);
+    result.childComponents = childComponentImports;
+    
+    // 递归分析子组件的API调用
+    for (const childPath of childComponentImports) {
+      const childResult = this.parseVueComponentForApi(childPath, depth + 1, new Set(visitedComponents));
+      if (childResult.hasApiCalls) {
+        // 将子组件的API调用添加到当前组件结果中，并标记来源
+        childResult.apiImports.forEach(api => {
+          result.apiImports.push({
+            ...api,
+            isFromChild: true,
+            childSourcePath: childPath,
+            parentDepth: depth
+          });
+        });
+        result.hasApiCalls = true;
+      }
+    }
+  }
+
+  // 检查是否为API导入
+  isApiImport(importPath) {
+    return importPath.includes('/api/') || 
+           importPath.startsWith('@/api') || 
+           importPath.includes('../api/') || 
+           importPath.includes('@/views/modules/');
+  }
+
+  // 检查是否为组件导入
+  isComponentImport(importPath) {
+    return !importPath.includes('/api/') && 
+           !importPath.includes('/utils/') && 
+           !importPath.includes('/mixins/') &&
+           !importPath.includes('node_modules') &&
+           !importPath.includes('@/assets/') &&
+           !importPath.includes('@/styles/') &&
+           (importPath.startsWith('./') || importPath.startsWith('../') || 
+            importPath.includes('/views/') || importPath.includes('/components/'));
+  }
+
+  // 处理API导入
+  processApiImport(functions, importPath, componentPath, result, depth) {
+    const srcRootPath = this.findSrcRootPath();
+    
+    functions.forEach(funcName => {
+      // 尝试多种可能的文件路径
+      const possiblePaths = [];
+      
+      if (importPath.startsWith('@/')) {
+        // @/api/xgxt -> api/xgxt/index.js 和 api/xgxt.js
+        // @/views/modules/kqdk/api.js -> views/modules/kqdk/api.js (直接使用)
+        const basePath = importPath.replace('@/', '');
+        
+        if (basePath.endsWith('.js')) {
+          // 如果已经以.js结尾，直接使用
+          possiblePaths.push(this.normalizePath(basePath));
+        } else {
+          // 否则尝试index.js和.js扩展名
+          possiblePaths.push(this.normalizePath(basePath + '/index.js'));
+          possiblePaths.push(this.normalizePath(basePath + '.js'));
+        }
+      } else if (importPath.startsWith('../')) {
+        // 处理相对路径，例如 ../../../api/xgxt/index
+        // 需要基于当前组件路径解析
+        const currentDir = path.dirname(componentPath);
+        const resolvedPath = this.safeResolve(this.safeJoin(srcRootPath, currentDir), importPath);
+        // 使用safeRelative进行跨平台相对路径计算
+        const relativePath = this.safeRelative(srcRootPath, resolvedPath);
+        possiblePaths.push(this.normalizePath(relativePath + '.js'));
+        possiblePaths.push(this.normalizePath(relativePath + '/index.js'));
+        // 如果路径已经包含 index，也尝试不带 index 的版本
+        if (relativePath.endsWith('/index')) {
+          const withoutIndex = relativePath.slice(0, -6); // 移除 '/index'
+          possiblePaths.push(this.normalizePath(withoutIndex + '.js'));
+        }
+      }
+      
+      // 尝试每个可能的路径
+      console.log(`      查找函数: ${funcName}, 尝试路径: ${possiblePaths.join(', ')}`);
+      for (const expectedFilePath of possiblePaths) {
+        const cacheKey = `${funcName}@${expectedFilePath}`;
+        console.log(`        尝试缓存键: ${cacheKey}`);
+        
+        if (this.apiCache.has(cacheKey)) {
+          console.log(`        找到API: ${funcName} -> ${expectedFilePath}`);
+          const apiInfo = this.apiCache.get(cacheKey);
+          result.apiImports.push({
+            functionName: funcName,
+            importPath,
+            depth: depth,
+            sourceComponent: componentPath,
+            ...apiInfo
+          });
+          result.hasApiCalls = true;
+          break; // 找到就停止尝试其他路径
+        }
+      }
+    });
+  }
+
+  // 解析组件路径
+  resolveComponentPath(importPath, currentComponentPath) {
+    const srcRootPath = this.findSrcRootPath();
+    const currentDir = path.dirname(currentComponentPath);
+    let resolvedPath;
+    
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+      // 相对路径解析
+      try {
+        // 构建当前组件的完整目录路径
+        const currentFullDir = this.safeResolve(this.safeJoin(srcRootPath, currentDir));
+        // 解析相对路径
+        const absolutePath = this.safeResolve(currentFullDir, importPath);
+        // 转换为相对于srcRoot的路径
+        let relativePath = this.safeRelative(srcRootPath, absolutePath);
+        // 规范化路径分隔符
+        resolvedPath = this.normalizePath('/' + relativePath);
+      } catch (error) {
+        console.warn(`路径解析失败: ${importPath} 从 ${currentComponentPath}`);
+        return null;
+      }
+    } else if (importPath.startsWith('@/')) {
+      // 绝对路径（使用@别名）
+      resolvedPath = this.normalizePath(importPath.replace('@', ''));
+    } else {
+      // 其他情况，可能是相对于views的路径
+      resolvedPath = this.normalizePath(`/views/${importPath}`);
+    }
+    
+    // 智能处理文件扩展名
+    if (!path.extname(resolvedPath)) {
+      // 先尝试.vue文件
+      const vueFullPath = this.safeJoin(srcRootPath, resolvedPath + '.vue');
+      if (fs.existsSync(this.safeResolve(vueFullPath))) {
+        return resolvedPath + '.vue';
+      }
+      
+      // 再尝试.js文件
+      const jsFullPath = this.safeJoin(srcRootPath, resolvedPath + '.js');
+      if (fs.existsSync(this.safeResolve(jsFullPath))) {
+        return resolvedPath + '.js';
+      }
+      
+      // 最后尝试index.vue
+      return path.posix.join(resolvedPath, 'index.vue');
+    }
+    
+    // 检查文件是否存在
+    const fullPath = this.safeJoin(srcRootPath, resolvedPath);
+    const finalResolvedPath = this.safeResolve(fullPath);
+    
+    if (fs.existsSync(finalResolvedPath)) {
+      return resolvedPath;
+    }
+    
+    return null;
   }
 
   // 解析Vue组件中导入的子组件
@@ -1233,15 +1371,22 @@ class EnhancedMobileRouteApiAnalyzer {
       const componentName = match[1];
       const importPath = match[2];
       
-      // 跳过明显的非Vue组件导入
+      // 跳过明显的非组件导入，但保留可能包含API调用的组件文件
       if (importPath.includes('/api/') || 
           importPath.includes('/utils/') || 
           importPath.includes('/mixins/') ||
           importPath.includes('node_modules') ||
           importPath.includes('@/assets/') ||
-          importPath.includes('@/styles/') ||
-          (importPath.includes('.js') && !importPath.includes('/views/')) ||
-          (importPath.includes('.ts') && !importPath.includes('/views/'))) {
+          importPath.includes('@/styles/')) {
+        continue;
+      }
+      
+      // 对于.js和.ts文件，只有在明确不是组件相关时才跳过
+      if ((importPath.includes('.js') || importPath.includes('.ts')) && 
+          !importPath.includes('/views/') && 
+          !importPath.includes('/components/') &&
+          !importPath.startsWith('./') && 
+          !importPath.startsWith('../')) {
         continue;
       }
       
@@ -1251,11 +1396,11 @@ class EnhancedMobileRouteApiAnalyzer {
         // 相对路径解析
         try {
           // 构建当前组件的完整目录路径
-          const currentFullDir = path.resolve(srcRootPath + currentDir);
+          const currentFullDir = this.safeResolve(this.safeJoin(srcRootPath, currentDir));
           // 解析相对路径
-          const absolutePath = path.resolve(currentFullDir, importPath);
+          const absolutePath = this.safeResolve(currentFullDir, importPath);
           // 转换为相对于srcRoot的路径
-          let relativePath = path.relative(srcRootPath, absolutePath);
+          let relativePath = this.safeRelative(srcRootPath, absolutePath);
           // 规范化路径分隔符
           resolvedPath = this.normalizePath('/' + relativePath);
         } catch (error) {
@@ -1270,28 +1415,37 @@ class EnhancedMobileRouteApiAnalyzer {
         resolvedPath = this.normalizePath(`/views/${importPath}`);
       }
       
-      // 智能处理目录导入和文件扩展名 - 保持向后兼容
+      // 智能处理目录导入和文件扩展名 - 支持.js和.vue文件
       if (!path.extname(resolvedPath)) {
         // 如果没有扩展名的情况，需要智能判断是文件还是目录
         // 首先尝试直接添加.vue扩展名（保持向后兼容）
         const directVuePath = resolvedPath + '.vue';
-        const directFullPath = path.join(srcRootPath, directVuePath);
-        const directResolvedPath = path.resolve(this.normalizePath(directFullPath));
+        const directFullPath = this.safeJoin(srcRootPath, directVuePath);
+        const directResolvedPath = this.safeResolve(directFullPath);
         
         if (fs.existsSync(directResolvedPath)) {
           // 如果直接添加.vue的文件存在，使用该路径
           resolvedPath = directVuePath;
         } else {
-          // 如果不存在，再尝试目录导入模式
-          resolvedPath = path.posix.join(resolvedPath, 'index.vue');
+          // 尝试.js文件
+          const directJsPath = resolvedPath + '.js';
+          const directJsFullPath = this.safeJoin(srcRootPath, directJsPath);
+          const directJsResolvedPath = this.safeResolve(directJsFullPath);
+          
+          if (fs.existsSync(directJsResolvedPath)) {
+            // 如果直接添加.js的文件存在，使用该路径
+            resolvedPath = directJsPath;
+          } else {
+            // 如果都不存在，再尝试目录导入模式
+            resolvedPath = path.posix.join(resolvedPath, 'index.vue');
+          }
         }
-      } else if (!resolvedPath.endsWith('.vue')) {
-        resolvedPath += '.vue';
       }
+      // 移除原来强制添加.vue的逻辑，因为现在我们要支持.js文件
       
       // 检查文件是否存在
-      const fullPath = path.join(srcRootPath, resolvedPath);
-      const finalResolvedPath = path.resolve(this.normalizePath(fullPath));
+      const fullPath = this.safeJoin(srcRootPath, resolvedPath);
+      const finalResolvedPath = this.safeResolve(fullPath);
       
       if (fs.existsSync(finalResolvedPath)) {
         childComponents.push(resolvedPath);
@@ -1312,8 +1466,8 @@ class EnhancedMobileRouteApiAnalyzer {
         // 尝试备选路径
         let found = false;
         for (const altPath of alternativePaths) {
-          const altFullPath = path.join(srcRootPath, altPath);
-          const altResolvedPath = path.resolve(this.normalizePath(altFullPath));
+          const altFullPath = this.safeJoin(srcRootPath, altPath);
+          const altResolvedPath = this.safeResolve(altFullPath);
           
           if (fs.existsSync(altResolvedPath)) {
             childComponents.push(altPath);
@@ -1483,8 +1637,8 @@ class EnhancedMobileRouteApiAnalyzer {
           for (const [cacheKey, apiInfo] of this.apiCache.entries()) {
             if (apiInfo.filePath) {
               let srcRootPath = this.findSrcRootPath();
-              const apiFilePath = path.join(srcRootPath, apiInfo.filePath);
-              const resolvedApiFilePath = path.resolve(this.normalizePath(apiFilePath));
+              const apiFilePath = this.safeJoin(srcRootPath, apiInfo.filePath);
+              const resolvedApiFilePath = this.safeResolve(apiFilePath);
               
               try {
                 const apiContent = fs.readFileSync(resolvedApiFilePath, 'utf8');
