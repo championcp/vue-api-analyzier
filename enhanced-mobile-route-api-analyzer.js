@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const ConfigManager = require('./lib/ConfigManager');
+const ConfigManager = require('./lib/ConfigManager.js');
 
 class EnhancedMobileRouteApiAnalyzer {
   constructor(srcPath) {
