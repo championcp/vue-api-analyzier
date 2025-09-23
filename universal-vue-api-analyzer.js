@@ -477,6 +477,8 @@ class UniversalVueApiAnalyzer {
       const apiImportPatterns = [
         // 绝对路径导入：import { func } from '@/api/xxx'
         /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](@\/api[^'"`]+)['"`]/g,
+        // views下的API导入：import { func } from '@/views/.../api/xxx'
+        /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](@\/views[^'"`]*\/api[^'"`]*)['"`]/g,
         // 相对路径导入：import { func } from '../../api/xxx'
         /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](\.[^'"`]*api[^'"`]*)['"`]/g,
         // views/modules下的API导入：import { func } from '../../../views/modules/xxx'
