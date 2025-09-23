@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const ConfigManager = require('./lib/ConfigManager.js');
+const WindowsChineseSupport = require('./lib/WindowsChineseSupport.js');
 
 class UniversalVueApiAnalyzer {
   constructor(srcPath, configPath = null) {
@@ -13,6 +14,9 @@ class UniversalVueApiAnalyzer {
     
     // 初始化配置管理器
     this.configManager = new ConfigManager(configPath);
+    
+    // 初始化Windows中文支持
+    this.chineseSupport = new WindowsChineseSupport();
   }
 
   // 跨平台路径规范化
@@ -80,7 +84,7 @@ class UniversalVueApiAnalyzer {
     }
     
     if (!baseUrlFile) {
-      console.warn('警告: 未找到baseUrl.js文件，将无法解析URL常量');
+      this.chineseSupport.safeConsoleOutput('警告: 未找到baseUrl.js文件，将无法解析URL常量', 'warn');
       return;
     }
     
@@ -121,7 +125,7 @@ class UniversalVueApiAnalyzer {
       this.resolveComplexReturns(content);
       
     } catch (error) {
-      console.error(`错误: 解析baseUrl.js文件失败: ${error.message}`);
+      this.chineseSupport.safeConsoleOutput(`错误: 解析baseUrl.js文件失败: ${error.message}`, 'error');
     }
   }
 
@@ -383,7 +387,7 @@ class UniversalVueApiAnalyzer {
       
       return apis;
     } catch (error) {
-      console.error(`错误: 解析API文件失败: ${filePath} - ${error.message}`);
+      this.chineseSupport.safeConsoleOutput(`错误: 解析API文件失败: ${filePath} - ${error.message}`, 'error');
       return {};
     }
   }
@@ -405,7 +409,7 @@ class UniversalVueApiAnalyzer {
     apiDirectories.forEach(apiDirPath => {
       const localApiDir = apiDirPath.replace(/\//g, path.sep);
       if (!fs.existsSync(localApiDir)) {
-        console.warn(`警告: API目录不存在: ${apiDirPath}`);
+        this.chineseSupport.safeConsoleOutput(`警告: API目录不存在: ${apiDirPath}`, 'warn');
         return;
       }
       
@@ -552,7 +556,7 @@ class UniversalVueApiAnalyzer {
       
       return result;
     } catch (error) {
-      console.error(`错误: 解析Vue文件失败: ${filePath} - ${error.message}`);
+      this.chineseSupport.safeConsoleOutput(`错误: 解析Vue文件失败: ${filePath} - ${error.message}`, 'error');
       return { apiImports: [], componentImports: [], hasApiCalls: false };
     }
   }
@@ -822,7 +826,7 @@ class UniversalVueApiAnalyzer {
               const localApiFilePath = apiFilePath.replace(/\//g, path.sep);
               
               try {
-                const apiContent = fs.readFileSync(localApiFilePath, 'utf8');
+                const apiContent = this.chineseSupport.readFile(localApiFilePath, 'utf8');
                 const constRegex = new RegExp(`(?:const|let|var)\\s+${constantName}\\s*=\\s*['"\`]([^'"\`]+)['"\`]`);
                 const constMatch = apiContent.match(constRegex);
                 if (constMatch) {
@@ -844,9 +848,11 @@ class UniversalVueApiAnalyzer {
     });
     
     const fullContent = csvHeader + csvRows.join('\n');
-    fs.writeFileSync(outputPath, fullContent, 'utf8');
     
-    console.log(`CSV报告已生成: ${outputPath}`);
+    // 使用Windows兼容的文件写入
+    this.chineseSupport.writeCSVFile(outputPath, fullContent);
+    
+    this.chineseSupport.safeConsoleOutput(`CSV报告已生成: ${outputPath}`);
   }
 
   // 运行程序
@@ -855,11 +861,11 @@ class UniversalVueApiAnalyzer {
       this.analyze();
       this.generateCSV();
       
-      console.log('\n=== 分析汇总 ===');
-      console.log(`处理的Vue文件数: ${this.processedFiles}`);
-      console.log(`发现的API调用关系: ${this.results.length}`);
-      console.log(`缓存的API函数: ${this.apiCache.size}`);
-      console.log(`解析的URL常量: ${this.urlConstantsCache.size}`);
+      this.chineseSupport.safeConsoleOutput('\n=== 分析汇总 ===');
+      this.chineseSupport.safeConsoleOutput(`处理的Vue文件数: ${this.processedFiles}`);
+      this.chineseSupport.safeConsoleOutput(`发现的API调用关系: ${this.results.length}`);
+      this.chineseSupport.safeConsoleOutput(`缓存的API函数: ${this.apiCache.size}`);
+      this.chineseSupport.safeConsoleOutput(`解析的URL常量: ${this.urlConstantsCache.size}`);
       
       // 显示最常用的API统计信息
       const urlStats = {};
@@ -872,14 +878,15 @@ class UniversalVueApiAnalyzer {
         .slice(0, 10);
       
       if (topApis.length > 0) {
-        console.log(`\n最常用的API (前${topApis.length}个):`);
+        this.chineseSupport.safeConsoleOutput(`\n最常用的API (前${topApis.length}个):`);
         topApis.forEach(([url, count]) => {
-          console.log(`  ${url}: ${count}次调用`);
+          this.chineseSupport.safeConsoleOutput(`  ${url}: ${count}次调用`);
         });
       }
         
     } catch (error) {
-      console.error('错误: 分析过程中发生错误:', error);
+      this.chineseSupport.safeConsoleOutput('错误: 分析过程中发生错误:', 'error');
+      this.chineseSupport.safeConsoleOutput(error.message || error.toString(), 'error');
     }
   }
 }
@@ -889,20 +896,24 @@ function main() {
   const args = process.argv.slice(2);
   const srcPath = args[0] || './src';
   
+  // 创建Windows中文支持实例用于早期输出
+  const chineseSupport = new WindowsChineseSupport();
+  
   if (!fs.existsSync(srcPath)) {
-    console.error(`错误: 源代码目录不存在: ${srcPath}`);
-    console.log('使用方法: node universal-vue-api-analyzer.js [src目录路径]');
+    chineseSupport.safeConsoleOutput(`错误: 源代码目录不存在: ${srcPath}`, 'error');
+    chineseSupport.safeConsoleOutput('使用方法: node universal-vue-api-analyzer.js [src目录路径]');
     process.exit(1);
   }
   
-  console.log(`分析目录: ${path.resolve(srcPath)}`);
+  chineseSupport.safeConsoleOutput(`分析目录: ${path.resolve(srcPath)}`);
   
   const analyzer = new UniversalVueApiAnalyzer(srcPath);
   analyzer.run();
 }
 
 if (require.main === module) {
-  console.log("##########", path.sep, "##########")
+  const chineseSupport = new WindowsChineseSupport();
+  chineseSupport.safeConsoleOutput(`########## ${path.sep} ##########`);
   main();
 }
 
