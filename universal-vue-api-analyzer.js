@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const WindowsChineseSupport = require('./lib/WindowsChineseSupport');
+const ConfigManager = require('./lib/ConfigManager.js');
+const WindowsChineseSupport = require('./lib/WindowsChineseSupport.js');
 
 class UniversalVueApiAnalyzer {
   constructor(srcPath, configPath = null) {
@@ -10,6 +11,9 @@ class UniversalVueApiAnalyzer {
     this.results = [];
     this.processedFiles = 0;
     this.totalFiles = 0;
+    
+    // 初始化配置管理器
+    this.configManager = new ConfigManager(configPath);
     
     // 初始化Windows中文支持
     this.chineseSupport = new WindowsChineseSupport();
@@ -391,31 +395,74 @@ class UniversalVueApiAnalyzer {
   // 预加载所有API文件
   preloadApiFiles() {
     let srcRootPath = this.findSrcRootPath();
-    const apiDirPath = srcRootPath + '/api';
     
-    const localApiDir = apiDirPath.replace(/\//g, path.sep);
-    if (!fs.existsSync(localApiDir)) {
-      this.chineseSupport.safeConsoleOutput(`警告: API目录不存在: ${apiDirPath}`, 'warn');
-      return;
+    // 使用ConfigManager获取API目录配置
+    const apiDirectories = this.configManager.getApiDirectories(srcRootPath);
+    
+    // 添加递归扫描views目录下的API目录
+    const viewsPath = srcRootPath + '/views';
+    if (fs.existsSync(viewsPath.replace(/\//g, path.sep))) {
+      const additionalApiDirs = this.findApiDirectoriesInViews(viewsPath);
+      apiDirectories.push(...additionalApiDirs);
     }
     
-    const apiFiles = this.scanDirectory(apiDirPath, ['.js']);
-    
-    apiFiles.forEach(file => {
-      const apis = this.parseApiFile(file);
+    apiDirectories.forEach(apiDirPath => {
+      const localApiDir = apiDirPath.replace(/\//g, path.sep);
+      if (!fs.existsSync(localApiDir)) {
+        this.chineseSupport.safeConsoleOutput(`警告: API目录不存在: ${apiDirPath}`, 'warn');
+        return;
+      }
       
-      // 计算相对路径（使用规范化路径）
-      const relativePath = file.replace(srcRootPath + '/', '');
+      const apiFiles = this.scanDirectory(apiDirPath, ['.js']);
       
-      Object.keys(apis).forEach(funcName => {
-        const cacheKey = `${funcName}@${relativePath}`;
-        this.apiCache.set(cacheKey, {
-          ...apis[funcName],
-          filePath: relativePath,
-          functionName: funcName
+      apiFiles.forEach(file => {
+        const apis = this.parseApiFile(file);
+        
+        // 计算相对路径（使用规范化路径）
+        const relativePath = file.replace(srcRootPath + '/', '');
+        
+        Object.keys(apis).forEach(funcName => {
+          const cacheKey = `${funcName}@${relativePath}`;
+          this.apiCache.set(cacheKey, {
+            ...apis[funcName],
+            filePath: relativePath,
+            functionName: funcName
+          });
         });
       });
     });
+  }
+
+  // 递归查找views目录下的所有api目录
+  findApiDirectoriesInViews(viewsPath) {
+    const apiDirectories = [];
+    const localViewsPath = viewsPath.replace(/\//g, path.sep);
+    
+    const scanForApiDirs = (currentPath) => {
+      try {
+        const items = fs.readdirSync(currentPath, { withFileTypes: true });
+        
+        for (const item of items) {
+          if (item.isDirectory() && !item.name.startsWith('.')) {
+            const fullPath = path.join(currentPath, item.name);
+            const normalizedPath = this.normalizePath(fullPath);
+            
+            // 如果是api目录，添加到列表
+            if (item.name.toLowerCase() === 'api') {
+              apiDirectories.push(normalizedPath);
+            } else {
+              // 递归扫描子目录
+              scanForApiDirs(fullPath);
+            }
+          }
+        }
+      } catch (error) {
+        // 忽略权限错误等
+      }
+    };
+    
+    scanForApiDirs(localViewsPath);
+    return apiDirectories;
   }
 
   // 解析Vue文件的完整信息
@@ -430,36 +477,71 @@ class UniversalVueApiAnalyzer {
         hasApiCalls: false
       };
       
-      // 解析API导入
-      const apiImportRegex = /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](@\/api[^'"`]+)['"`]/g;
-      let match;
+      // 解析API导入 - 支持绝对路径(@/api)和相对路径(../../api)
+      const apiImportPatterns = [
+        // 绝对路径导入：import { func } from '@/api/xxx'
+        /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](@\/api[^'"`]+)['"`]/g,
+        // views下的API导入：import { func } from '@/views/.../api/xxx'
+        /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](@\/views[^'"`]*\/api[^'"`]*)['"`]/g,
+        // 相对路径导入：import { func } from '../../api/xxx'
+        /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](\.[^'"`]*api[^'"`]*)['"`]/g,
+        // views/modules下的API导入：import { func } from '../../../views/modules/xxx'
+        /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`]([^'"`]*views\/modules[^'"`]*)['"`]/g
+      ];
       
-      while ((match = apiImportRegex.exec(content)) !== null) {
-        const functions = match[1].split(',').map(f => f.trim().replace(/\s+as\s+\w+/, ''));
-        const importPath = match[2];
+      apiImportPatterns.forEach(regex => {
+        let match;
+        regex.lastIndex = 0; // 重置正则表达式状态
         
-        functions.forEach(funcName => {
-          let expectedFilePath = importPath.replace('@/', '') + '.js';
-          expectedFilePath = this.normalizePath(expectedFilePath);
-          const cacheKey = `${funcName}@${expectedFilePath}`;
+        while ((match = regex.exec(content)) !== null) {
+          const functions = match[1].split(',').map(f => f.trim().replace(/\s+as\s+\w+/, ''));
+          const importPath = match[2];
           
-          if (this.apiCache.has(cacheKey)) {
-            const apiInfo = this.apiCache.get(cacheKey);
-            result.apiImports.push({
-              functionName: funcName,
-              importPath,
-              ...apiInfo
-            });
-            result.hasApiCalls = true;
-          }
-        });
-      }
+          functions.forEach(funcName => {
+            let expectedFilePath;
+            
+            if (importPath.startsWith('@/')) {
+              // 绝对路径导入
+              let basePath = importPath.replace('@/', '');
+              // 如果导入路径以/api结尾，说明是目录导入，需要添加/index.js
+              if (basePath.endsWith('/api')) {
+                expectedFilePath = basePath + '/index.js';
+              } else {
+                expectedFilePath = basePath + '.js';
+              }
+            } else if (importPath.startsWith('.')) {
+              // 相对路径导入，需要解析相对于当前文件的路径
+              const currentFileDir = path.dirname(filePath);
+              const resolvedPath = path.resolve(currentFileDir, importPath);
+              const srcRootPath = this.findSrcRootPath();
+              expectedFilePath = this.normalizePath(path.relative(srcRootPath, resolvedPath) + '.js');
+            } else {
+              // 其他路径（如views/modules）
+              expectedFilePath = importPath + '.js';
+            }
+            
+            expectedFilePath = this.normalizePath(expectedFilePath);
+            const cacheKey = `${funcName}@${expectedFilePath}`;
+            
+            if (this.apiCache.has(cacheKey)) {
+              const apiInfo = this.apiCache.get(cacheKey);
+              result.apiImports.push({
+                functionName: funcName,
+                importPath,
+                ...apiInfo
+              });
+              result.hasApiCalls = true;
+            }
+          });
+        }
+      });
       
       // 解析Vue组件导入
       const componentImportRegex = /import\s+(\w+)\s+from\s*['"`](\.[^'"`]+)['"`]/g;
-      while ((match = componentImportRegex.exec(content)) !== null) {
-        const componentName = match[1];
-        const relativeImportPath = match[2];
+      let componentMatch;
+      while ((componentMatch = componentImportRegex.exec(content)) !== null) {
+        const componentName = componentMatch[1];
+        const relativeImportPath = componentMatch[2];
         
         // 构建子组件的完整路径（先用绝对路径计算）
         const fileDir = path.dirname(filePath);
@@ -750,7 +832,7 @@ class UniversalVueApiAnalyzer {
               const localApiFilePath = apiFilePath.replace(/\//g, path.sep);
               
               try {
-                const apiContent = fs.readFileSync(localApiFilePath, 'utf8');
+                const apiContent = this.chineseSupport.readFile(localApiFilePath, 'utf8');
                 const constRegex = new RegExp(`(?:const|let|var)\\s+${constantName}\\s*=\\s*['"\`]([^'"\`]+)['"\`]`);
                 const constMatch = apiContent.match(constRegex);
                 if (constMatch) {
@@ -772,6 +854,7 @@ class UniversalVueApiAnalyzer {
     });
     
     const fullContent = csvHeader + csvRows.join('\n');
+    
     // 使用Windows兼容的文件写入
     this.chineseSupport.writeCSVFile(outputPath, fullContent);
     

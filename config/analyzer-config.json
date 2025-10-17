@@ -75,7 +75,8 @@
   
   "analysis": {
     "description": "分析行为配置",
-    "maxDepth": 3,
+    "maxDepth": 5,
+    "maxDepth_note": "递归分析深度限制，仅适用于移动端分析器(enhanced-mobile-route-api-analyzer.js)，PC端分析器使用独立的深度控制",
     "supportedFileExtensions": [".vue", ".js", ".ts"],
     "skipDirectories": ["node_modules", ".git", "dist", "build"],
     "cacheEnabled": true,
