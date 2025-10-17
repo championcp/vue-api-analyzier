@@ -502,7 +502,13 @@ class UniversalVueApiAnalyzer {
             
             if (importPath.startsWith('@/')) {
               // 绝对路径导入
-              expectedFilePath = importPath.replace('@/', '') + '.js';
+              let basePath = importPath.replace('@/', '');
+              // 如果导入路径以/api结尾，说明是目录导入，需要添加/index.js
+              if (basePath.endsWith('/api')) {
+                expectedFilePath = basePath + '/index.js';
+              } else {
+                expectedFilePath = basePath + '.js';
+              }
             } else if (importPath.startsWith('.')) {
               // 相对路径导入，需要解析相对于当前文件的路径
               const currentFileDir = path.dirname(filePath);
