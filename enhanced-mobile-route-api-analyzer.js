@@ -1224,7 +1224,9 @@ class EnhancedMobileRouteApiAnalyzer {
     return importPath.includes('/api/') || 
            importPath.startsWith('@/api') || 
            importPath.includes('../api/') || 
-           importPath.includes('@/views/modules/');
+           importPath.includes('@/views/modules/') ||
+           // 新增：支持@/views/.../api模式的通用API导入
+           (importPath.includes('@/views/') && importPath.includes('/api'));
   }
 
   // 检查是否为组件导入
